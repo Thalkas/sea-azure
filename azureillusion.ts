@@ -5,56 +5,41 @@
 
 //@ts-ignore
 function init() {
-    Seanime.registerSubtitleProvider({
-        id: "azureillusion-subs",
-        name: "AzureIllusion (PL)",
-        version: "1.0.2",
-
-        async searchSubtitles(media: any) {
+    $ui.register((ctx) => {
+        // Nasłuchiwanie lub obsługa żądań napisów w sesji odtwarzacza
+        ctx.videoCore.onPlaybackStarted(async () => {
             const apiKey = $getUserPreference("apiKey");
             const baseUrl = $getUserPreference("baseUrl") || "https://azureillusion-nuvio-addon.skoruppa.workers.dev";
 
-            if (!apiKey) {
-                console.error("[AzureIllusion] Brak klucza API! Wpisz go w ustawieniach rozszerzenia w Seanime.");
-                return [];
-            }
-
-            const anilistId = media.anilistId;
-            const episode = media.episodeNumber || 1;
-
-            if (!anilistId) {
-                return [];
-            }
-
-            const streamId = `anilist:${anilistId}:${episode}`;
-            const requestUrl = `${baseUrl}/${apiKey}/subtitles/anime/${streamId}.json`;
+            if (!apiKey) return;
 
             try {
+                const info = await ctx.videoCore.getCurrentPlaybackInfo();
+                const anilistId = info.media?.id;
+                const episode = info.episode?.episodeNumber || 1;
+
+                if (!anilistId) return;
+
+                const streamId = `anilist:${anilistId}:${episode}`;
+                const requestUrl = `${baseUrl}/${apiKey}/subtitles/anime/${streamId}.json`;
+
                 const response = await fetch(requestUrl);
-                if (!response.ok) {
-                    return [];
-                }
+                if (!response.ok) return;
 
                 const data = await response.json();
-                if (!data.subtitles || data.subtitles.length === 0) {
-                    return [];
+                if (!data.subtitles || data.subtitles.length === 0) return;
+
+                for (const sub of data.subtitles) {
+                    await ctx.videoCore.addExternalSubtitleTrack({
+                        src: sub.url,
+                        label: sub.title || "[PL] AzureIllusion",
+                        language: "pl",
+                        type: sub.url.endsWith(".ass") ? "ass" : "srt",
+                    });
                 }
-
-                return data.subtitles.map((sub: any) => ({
-                    id: sub.id || sub.url,
-                    url: sub.url,
-                    language: "PL",
-                    title: sub.title || "[PL] AzureIllusion",
-                    format: sub.url && sub.url.endsWith(".ass") ? "ass" : "srt",
-                    headers: {
-                        "Authorization": apiKey
-                    }
-                }));
-
             } catch (err) {
-                console.error("[AzureIllusion] Błąd pobierania:", err);
-                return [];
+                console.error("[AzureIllusion] Błąd wstrzykiwania napisów:", err);
             }
-        }
+        });
     });
 }
