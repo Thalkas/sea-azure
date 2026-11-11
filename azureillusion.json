@@ -6,7 +6,7 @@
     "type": "plugin",
     "description": "Subtitles provider for AzureIllusion Polish anime subtitles in Seanime.",
     "author": "skoruppa",
-    "icon": "",
+    "icon": "https://raw.githubusercontent.com/Thalkas/sea-azure/refs/heads/main/azureillusion-logo-v3.png",
     "lang": "pl",
     "userConfig": {
         "version": 1,
