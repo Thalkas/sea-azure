@@ -16,7 +16,7 @@ function init() {
         // EXPERIMENTAL (MpvCore only). When true and the player is MpvCore, the plugin also tries
         // to send mpv's own `sub-add` command through any command-like method found on
         // ctx.videoCore. Leave false until the probe log shows such a method exists.
-        const MPV_COMMANDS = false
+        const MPV_COMMANDS = true
 
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
