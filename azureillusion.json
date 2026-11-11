@@ -26,6 +26,6 @@
             }
         ]
     },
-    "payloadURI": "https://raw.githubusercontent.com/x/sea-azure/main/azureillusion.ts",
-    "manifestURI": "https://raw.githubusercontent.com/x/sea-azure/main/azureillusion.json"
+    "payloadURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.ts",
+    "manifestURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.json"
 }
