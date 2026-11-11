@@ -55,7 +55,15 @@ function init() {
         async function doFetch(url: string): Promise<any> {
             // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            return await f(url)
+            console.log(TAG, "fetch ->", url.replace(/\/[^/]{8,}\/subtitles/, "/***/subtitles"))
+            try {
+                const r = await f(url)
+                console.log(TAG, "fetch <- status:", r?.status, "ok:", r?.ok)
+                return r
+            } catch (e) {
+                console.error(TAG, "fetch FAILED:", String(e))
+                throw e
+            }
         }
 
         // ---------- main logic ----------
