@@ -9,6 +9,10 @@ function init() {
         const TAG = "[AzureIllusion]"
         const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
 
+        const INJECT_DELAY_MS = 2000
+        // false = send subtitle text to the player; true = send only the file URL
+        const USE_URL = false
+
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
 
@@ -128,17 +132,43 @@ function init() {
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
 
-                        ctx.videoCore.addExternalSubtitleTrack({
-                            label: sub.title || sub.label || "[PL] AzureIllusion",
-                            language: "pl",
-                            type: type === "srt" ? "vtt" : type,
-                            content: type === "srt" ? srtToVtt(text) : text,
-                        })
+                        const titleLine = text.match(/^Title:\s*(.+)$/m)
+                        const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
+
+                        if (USE_URL) {
+                            ctx.videoCore.addExternalSubtitleTrack({
+                                label,
+                                language: "pl",
+                                type: type === "srt" ? "vtt" : type,
+                                url: sub.url,
+                            })
+                        } else {
+                            ctx.videoCore.addExternalSubtitleTrack({
+                                label,
+                                language: "pl",
+                                type: type === "srt" ? "vtt" : type,
+                                content: type === "srt" ? srtToVtt(text) : text,
+                            })
+                        }
+                        console.log(TAG, "Dodano ścieżkę:", label, type)
                         added++
                     } catch (e) {
                         console.error(TAG, "Błąd przy dodawaniu ścieżki:", e)
                     }
                 }
+
+                // Diagnostics: what tracks does the player report after our additions?
+                try {
+                    const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
+                    wait(() => {
+                        try {
+                            const tracks = ctx.videoCore.getTextTracks()
+                            console.log(TAG, "Ścieżki widziane przez odtwarzacz:", JSON.stringify(tracks)?.slice(0, 1500))
+                        } catch (e) {
+                            console.error(TAG, "getTextTracks błąd:", String(e))
+                        }
+                    }, 1500)
+                } catch (_) {}
 
                 if (added > 0) {
                     ctx.videoCore.showMessage(`AzureIllusion: dodano napisy PL (${added})`, 2500)
@@ -152,8 +182,11 @@ function init() {
         }
 
         // Fires when the player has loaded the video metadata (track list is ready)
-        ctx.videoCore.addEventListener("video-loaded-metadata", () => {
-            injectSubtitles("video-loaded-metadata")
+        // Inject only once the player is actually ready, then wait a moment,
+        // otherwise mpv can drop tracks that were added during loading.
+        ctx.videoCore.addEventListener("video-can-play", () => {
+            const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
+            wait(() => injectSubtitles("video-can-play+delay"), INJECT_DELAY_MS)
         })
 
         // Reset on new playback so the next episode gets its subtitles
