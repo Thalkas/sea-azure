@@ -11,12 +11,23 @@ function init() {
 
         const INJECT_DELAY_MS = 2000
         // false = send subtitle text to the player; true = send only the file URL
-        const USE_URL = false
+        const USE_URL = true
 
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
 
         // ---------- helpers ----------
+
+        // Replaces the API key with [REDACTED] in anything we log
+        function redact(text: string): string {
+            try {
+                const key = ($getUserPreference("apiKey") || "").trim()
+                if (!key) return text
+                return text.split(key).join("[REDACTED]")
+            } catch (_) {
+                return text
+            }
+        }
 
         function srtToVtt(srt: string): string {
             const body = srt
@@ -59,13 +70,13 @@ function init() {
         async function doFetch(url: string): Promise<any> {
             // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            console.log(TAG, "fetch ->", url.replace(/\/[^/]{8,}\/subtitles/, "/***/subtitles"))
+            console.log(TAG, "fetch ->", redact(url))
             try {
                 const r = await f(url)
                 console.log(TAG, "fetch <- status:", r?.status, "ok:", r?.ok)
                 return r
             } catch (e) {
-                console.error(TAG, "fetch FAILED:", String(e))
+                console.error(TAG, "fetch FAILED:", redact(String(e)))
                 throw e
             }
         }
@@ -102,7 +113,7 @@ function init() {
                 lastKey = key
 
                 const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
-                console.log(TAG, "Zapytanie:", url.replace(apiKey, "***"))
+                console.log(TAG, "Zapytanie:", redact(url))
 
                 const res = await doFetch(url)
                 if (!res.ok) {
@@ -126,13 +137,13 @@ function init() {
                         // Download the file ourselves, so no CORS / header problems in the player
                         const subRes = await doFetch(sub.url)
                         if (!subRes.ok) {
-                            console.warn(TAG, "Nie udało się pobrać napisów:", sub.url, subRes.status)
+                            console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
                             continue
                         }
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
 
-                        const titleLine = text.match(/^Title:\s*(.+)$/m)
+                        const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
                         const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
 
                         if (USE_URL) {
@@ -153,7 +164,7 @@ function init() {
                         console.log(TAG, "Dodano ścieżkę:", label, type)
                         added++
                     } catch (e) {
-                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", e)
+                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", redact(String(e)))
                     }
                 }
 
@@ -176,7 +187,7 @@ function init() {
                     lastKey = ""
                 }
             } catch (err) {
-                console.error(TAG, "Wyjątek:", err)
+                console.error(TAG, "Wyjątek:", redact(String(err)))
                 lastKey = ""
             }
         }
