@@ -9,13 +9,15 @@ function init() {
         const TAG = "[AzureIllusion]"
         const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
 
-        const INJECT_DELAY_MS = 2000
+        //const INJECT_DELAY_MS = 2000
+        const INJECT_DELAY_MS = 0
         // false = send subtitle text to the player; true = send only the file URL
         const USE_URL = false
 
         // EXPERIMENTAL (MpvCore only). When true and the player is MpvCore, the plugin also tries
         // to send mpv's own `sub-add` command through any command-like method found on
         // ctx.videoCore. Leave false until the probe log shows such a method exists.
+        //const MPV_COMMANDS = false
         const MPV_COMMANDS = true
 
         // Remember what we already injected so one episode isn't injected twice
