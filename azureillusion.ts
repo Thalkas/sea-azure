@@ -6,9 +6,9 @@
 Seanime.registerSubtitleProvider({
     id: "azureillusion-subs",
     name: "AzureIllusion (PL)",
-    version: "1.0.0",
+    version: "1.0.2",
 
-    async searchSubtitles(media) {
+    async searchSubtitles(media: any) {
         const apiKey = $getUserPreference("apiKey");
         const baseUrl = $getUserPreference("baseUrl") || "https://azureillusion-nuvio-addon.skoruppa.workers.dev";
 
@@ -21,7 +21,6 @@ Seanime.registerSubtitleProvider({
         const episode = media.episodeNumber || 1;
 
         if (!anilistId) {
-            console.warn("[AzureIllusion] Brak AniList ID dla tego tytułu.");
             return [];
         }
 
@@ -31,7 +30,6 @@ Seanime.registerSubtitleProvider({
         try {
             const response = await fetch(requestUrl);
             if (!response.ok) {
-                console.error(`[AzureIllusion] Błąd API HTTP: ${response.status}`);
                 return [];
             }
 
@@ -44,15 +42,15 @@ Seanime.registerSubtitleProvider({
                 id: sub.id || sub.url,
                 url: sub.url,
                 language: "PL",
-                title: sub.title || `[PL] AzureIllusion`,
-                format: sub.url.endsWith(".ass") ? "ass" : "srt",
+                title: sub.title || "[PL] AzureIllusion",
+                format: sub.url && sub.url.endsWith(".ass") ? "ass" : "srt",
                 headers: {
                     "Authorization": apiKey
                 }
             }));
 
         } catch (err) {
-            console.error("[AzureIllusion] Wystąpił błąd podczas pobierania napisów:", err);
+            console.error("[AzureIllusion] Błąd pobierania:", err);
             return [];
         }
     }
