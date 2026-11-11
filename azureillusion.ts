@@ -11,23 +11,12 @@ function init() {
 
         const INJECT_DELAY_MS = 2000
         // false = send subtitle text to the player; true = send only the file URL
-        const USE_URL = true
+        const USE_URL = false
 
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
 
         // ---------- helpers ----------
-
-        // Replaces the API key with [REDACTED] in anything we log
-        function redact(text: string): string {
-            try {
-                const key = ($getUserPreference("apiKey") || "").trim()
-                if (!key) return text
-                return text.split(key).join("[REDACTED]")
-            } catch (_) {
-                return text
-            }
-        }
 
         function srtToVtt(srt: string): string {
             const body = srt
@@ -70,13 +59,13 @@ function init() {
         async function doFetch(url: string): Promise<any> {
             // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            console.log(TAG, "fetch ->", redact(url))
+            console.log(TAG, "fetch ->", url.replace(/\/[^/]{8,}\/subtitles/, "/***/subtitles"))
             try {
                 const r = await f(url)
                 console.log(TAG, "fetch <- status:", r?.status, "ok:", r?.ok)
                 return r
             } catch (e) {
-                console.error(TAG, "fetch FAILED:", redact(String(e)))
+                console.error(TAG, "fetch FAILED:", String(e))
                 throw e
             }
         }
@@ -113,7 +102,7 @@ function init() {
                 lastKey = key
 
                 const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
-                console.log(TAG, "Zapytanie:", redact(url))
+                console.log(TAG, "Zapytanie:", url.replace(apiKey, "***"))
 
                 const res = await doFetch(url)
                 if (!res.ok) {
@@ -137,13 +126,13 @@ function init() {
                         // Download the file ourselves, so no CORS / header problems in the player
                         const subRes = await doFetch(sub.url)
                         if (!subRes.ok) {
-                            console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
+                            console.warn(TAG, "Nie udało się pobrać napisów:", sub.url, subRes.status)
                             continue
                         }
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
 
-                        const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
+                        const titleLine = text.match(/^Title:\s*(.+)$/m)
                         const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
 
                         if (USE_URL) {
@@ -164,22 +153,9 @@ function init() {
                         console.log(TAG, "Dodano ścieżkę:", label, type)
                         added++
                     } catch (e) {
-                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", redact(String(e)))
+                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", e)
                     }
                 }
-
-                // Diagnostics: what tracks does the player report after our additions?
-                try {
-                    const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
-                    wait(() => {
-                        try {
-                            const tracks = ctx.videoCore.getTextTracks()
-                            console.log(TAG, "Ścieżki widziane przez odtwarzacz:", JSON.stringify(tracks)?.slice(0, 1500))
-                        } catch (e) {
-                            console.error(TAG, "getTextTracks błąd:", String(e))
-                        }
-                    }, 1500)
-                } catch (_) {}
 
                 if (added > 0) {
                     ctx.videoCore.showMessage(`AzureIllusion: dodano napisy PL (${added})`, 2500)
@@ -187,7 +163,7 @@ function init() {
                     lastKey = ""
                 }
             } catch (err) {
-                console.error(TAG, "Wyjątek:", redact(String(err)))
+                console.error(TAG, "Wyjątek:", err)
                 lastKey = ""
             }
         }
