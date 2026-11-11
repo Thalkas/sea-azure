@@ -1,0 +1,31 @@
+{
+    "id": "azureillusion-subs",
+    "name": "AzureIllusion (PL)",
+    "version": "1.0.0",
+    "language": "typescript",
+    "type": "plugin",
+    "description": "Subtitles provider for AzureIllusion Polish anime subtitles in Seanime.",
+    "author": "skoruppa",
+    "icon": "",
+    "lang": "pl",
+    "userConfig": {
+        "version": 1,
+        "requiresConfig": true,
+        "fields": [
+            {
+                "type": "text",
+                "name": "apiKey",
+                "label": "AzureIllusion API Key",
+                "default": ""
+            },
+            {
+                "type": "text",
+                "name": "baseUrl",
+                "label": "Base URL",
+                "default": "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
+            }
+        ]
+    },
+    "payloadURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.ts",
+    "manifestURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.json"
+}
