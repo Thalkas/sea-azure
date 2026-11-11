@@ -27,7 +27,7 @@
         ]
     },
     "payloadURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.ts",
-    "manifestURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.json"
+    "manifestURI": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion.json",
     "plugin": {
         "version": "1",
         "permissions": {
