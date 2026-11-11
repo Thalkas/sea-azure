@@ -181,6 +181,18 @@ function init() {
             lastKey = ""
         })
 
+        try {
+            const names = new Set<string>()
+            let o: any = ctx.videoCore
+            for (let i = 0; o && i < 4; i++) {
+                for (const k of Object.getOwnPropertyNames(o)) names.add(k)
+                o = Object.getPrototypeOf(o)
+            }
+            console.log(TAG, "Metody ctx.videoCore:", Array.from(names).join(", "))
+        } catch (e) {
+            console.warn(TAG, "Nie udało się wylistować metod:", String(e))
+        }
+
         console.log(TAG, "Wtyczka załadowana.")
     })
 }
