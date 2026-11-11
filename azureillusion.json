@@ -1,7 +1,7 @@
 {
   "id": "azureillusion-subs",
   "name": "AzureIllusion (PL)",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "language": "typescript",
   "type": "plugin",
   "description": "Subtitles provider for AzureIllusion Polish anime subtitles in Seanime.",
@@ -36,9 +36,7 @@
       ],
       "allow": {
         "networkAccess": {
-          "allowedDomains": [
-            "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
-          ],
+          "allowedDomains": ["*"],
           "reasoning": "Fetch subtitles from AzureIllusion API"
         }
       }
