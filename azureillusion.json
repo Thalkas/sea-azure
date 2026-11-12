@@ -1,7 +1,7 @@
 {
   "id": "azureillusion-subs",
   "name": "AzureIllusion (PL)",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "language": "typescript",
   "type": "plugin",
   "description": "[DOESN'T WORK WITH MPV FOR NOW] Subtitles provider for Polish anime fan made subtitles in Seanime.",
