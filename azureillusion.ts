@@ -241,4 +241,3 @@ function init() {
         console.log(TAG, "Wtyczka załadowana.")
     })
 }
-}
