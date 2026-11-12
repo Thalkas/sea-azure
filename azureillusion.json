@@ -25,7 +25,7 @@
         "type": "text",
         "name": "baseUrl",
         "label": "Base URL",
-        "default": "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
+        "default": "https://api.azureillusion.com"
       }
     ]
   },
