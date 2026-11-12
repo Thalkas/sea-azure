@@ -201,7 +201,8 @@ function init() {
                 if (key === lastKey) return
                 lastKey = key
 
-                const isMpvCore = info?.target === "mpvcore"
+                const isMpvCore = info?.target === "mpvcore" || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore";
+                console.log(TAG, "DEBUG MPV Check -> target:", info?.target, "isMpvCore:", isMpvCore, "ctx.mpv:", !!ctx.mpv);
                 const commandLike = probePlayerApi()
 
                 const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
