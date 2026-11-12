@@ -9,6 +9,7 @@
   "icon": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion-logo-v3.png",
   "website": "https://subs.azureillusion.ovh/account?tab=api",
   "readme": "https://subs.azureillusion.ovh/account?tab=api",
+  "notes": "This addon is a rewritten port of the Nuvio addon created by the excellent developer Skoruppa. Both addons rely on the AzureIllusion subtitle database created by i3lackhawk. I am not the developer of Nuvio or AzureIllusion; I only created this port, and all credits for the system go entirely to i3lackhawk and Skoruppa!\nTen dodatek to port stworzony dla ekosystemu Seanime, oparty na dodatku Nuvio stworzonym przez znakomitego dewelopera Skoruppa. Oba dodatki korzystają z bazy napisów AzureIllusion stworzonej przez i3lackhawk. Nie jestem twórcą Nuvio ani AzureIllusion – stworzyłem jedynie ten port, a cała zasługa za ten system należy się w pełni i3lackhawk oraz Skoruppie!",
   "lang": "pl",
   "userConfig": {
     "version": 1,
