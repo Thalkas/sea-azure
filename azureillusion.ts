@@ -15,11 +15,6 @@ function init() {
         // Menu label when the API gives no name
         const FALLBACK_NAME = "AzureIllusion"
 
-        // The API puts a readable name in each subtitle's "id", e.g.
-        //   "Miroro-sub [ASS] 12/12 WEB (05.11)"  = group [format] translated/total source (date)
-        // false = the menu shows only the group name ("Miroro-sub"); the full id is used just
-        //         when one group has several releases for the episode, so they can be told apart.
-        // true  = always show the full id.
         const ALWAYS_SHOW_DETAILS = false
 
         // Remember what we already injected so one episode isn't injected twice
@@ -27,7 +22,6 @@ function init() {
 
         // ---------- helpers ----------
 
-        // Replaces the API key with [REDACTED] in anything we log
         function redact(text: string): string {
             try {
                 const key = ($getUserPreference("apiKey") || "").trim()
@@ -38,7 +32,6 @@ function init() {
             }
         }
 
-        // "Miroro-sub [ASS] 12/12 WEB (05.11)" -> "Miroro-sub"
         function groupFromId(id: string): string {
             return id.replace(/\s*\[(ASS|SSA|SRT)\].*$/i, "").trim()
         }
@@ -63,7 +56,6 @@ function init() {
             return "srt"
         }
 
-        // The shape of playback info differs a bit between playback types, so check several places
         function readEpisodeNumber(info: any, state: any): number | null {
             const candidates = [
                 info?.episode?.progressNumber,
@@ -81,12 +73,11 @@ function init() {
         }
 
         async function doFetch(url: string): Promise<any> {
-            // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
             return await f(url)
         }
 
-        // MpvCore / MPV: let mpv load the subtitle straight from its URL (works, shows in the menu)
+        // MpvCore / MPV: dodawanie napisów bezpośrednio przez IPC
         async function addViaMpv(url: string, label: string): Promise<boolean> {
             const mpv = (ctx as any).mpv
             if (!mpv || typeof mpv.getConnection !== "function") return false
@@ -134,7 +125,8 @@ function init() {
                 if (key === lastKey) return
                 lastKey = key
 
-                const isMpvCore = String(info?.target || "").toLowerCase().includes("mpv")
+                const targetStr = String(info?.target || "").toLowerCase().trim()
+                const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore"
 
                 const res = await doFetch(`${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`)
                 if (!res.ok) {
@@ -150,7 +142,6 @@ function init() {
                     return
                 }
 
-                // How many releases each group has, to know when the group name alone is ambiguous
                 const groupCounts: Record<string, number> = {}
                 for (const s of subs) {
                     const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
@@ -163,8 +154,6 @@ function init() {
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
-                        // Label = fansub group name taken from the id. If the group has several releases
-                        // (or ALWAYS_SHOW_DETAILS is on), show the full id (progress, source, date).
                         const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
                         const group = fullId ? groupFromId(fullId) : ""
                         const base = !group
@@ -173,12 +162,14 @@ function init() {
                         nameCount[base] = (nameCount[base] || 0) + 1
                         const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
-                        // 1. MpvCore: add the track through mpv itself
-                        let done = false
-                        if (isMpvCore) done = await addViaMpv(sub.url, label)
+                        // 1. Najpierw próbujemy obsłużyć przez MPV IPC
+                        let mpvInjected = false
+                        if (isMpvCore) {
+                            mpvInjected = await addViaMpv(sub.url, label)
+                        }
 
-                        // 2. VideoCore (or if the mpv route isn't available): download and hand over the text
-                        if (!done) {
+                        // 2. Jeśli to nie MPV lub IPC zawiodło, używamy VideoCore
+                        if (!mpvInjected) {
                             const subRes = await doFetch(sub.url)
                             if (!subRes.ok) {
                                 console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
@@ -193,6 +184,8 @@ function init() {
                                 content: type === "srt" ? srtToVtt(text) : text,
                             })
                         }
+
+                        console.log(TAG, "Dodano ścieżkę:", label)
                         added++
                     } catch (e) {
                         console.error(TAG, "Błąd przy dodawaniu ścieżki:", redact(String(e)))
@@ -210,13 +203,11 @@ function init() {
             }
         }
 
-        // Inject once the player is ready (after a short delay)
         ctx.videoCore.addEventListener("video-can-play", () => {
             const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
             wait(() => injectSubtitles(), INJECT_DELAY_MS)
         })
 
-        // Reset on new playback so the next episode gets its subtitles
         ctx.videoCore.addEventListener("video-loaded", () => {
             lastKey = ""
         })
