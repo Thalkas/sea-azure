@@ -266,7 +266,22 @@ function init() {
                                 content: type === "srt" ? srtToVtt(text) : text,
                             })
                         }
-
+                            //Z gemini
+                        if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
+                            try {
+                                const mpvConn = await ctx.mpv.getConnection()
+                                if (mpvConn && typeof mpvConn.command === "function") {
+                                    await mpvConn.command(["sub-add", sub.url, "select", label, "pl"])
+                                    console.log(TAG, "Dodano napisy do MPV przez IPC:", label)
+                                } else if (mpvConn && typeof mpvConn.send === "function") {
+                                    await mpvConn.send(["sub-add", sub.url, "select", label, "pl"])
+                                    console.log(TAG, "Wysłano napisy do MPV przez send:", label)
+                                }
+                            } catch (mpvErr) {
+                                console.error(TAG, "Błąd komunikacji z MPV IPC:", redact(String(mpvErr)))
+                            }
+                        }
+                        
                         // Experimental path for MpvCore
                         if (MPV_COMMANDS && isMpvCore) {
                             const ok = tryMpvSubAdd(commandLike, sub.url, label)
