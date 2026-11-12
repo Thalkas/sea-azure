@@ -13,14 +13,30 @@ function init() {
         // false = send subtitle text to the player; true = send only the file URL
         const USE_URL = false
 
+        // EXPERIMENTAL (MpvCore only). When true and the player is MpvCore, the plugin also tries
+        // to send mpv's own `sub-add` command through any command-like method found on
+        // ctx.videoCore. Leave false until the probe log shows such a method exists.
+        const MPV_COMMANDS = false
+
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
 
         // ---------- helpers ----------
 
+        // Replaces the API key with [REDACTED] in anything we log
+        function redact(text: string): string {
+            try {
+                const key = ($getUserPreference("apiKey") || "").trim()
+                if (!key) return text
+                return text.split(key).join("[REDACTED]")
+            } catch (_) {
+                return text
+            }
+        }
+
         function srtToVtt(srt: string): string {
             const body = srt
-                .replace(/^\uFEFF/, "")
+                .replace(/^﻿/, "")
                 .replace(/\r+\n/g, "\n")
                 .replace(/\r/g, "\n")
                 .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")
@@ -59,15 +75,51 @@ function init() {
         async function doFetch(url: string): Promise<any> {
             // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            console.log(TAG, "fetch ->", url.replace(/\/[^/]{8,}\/subtitles/, "/***/subtitles"))
+            console.log(TAG, "fetch ->", redact(url))
             try {
                 const r = await f(url)
                 console.log(TAG, "fetch <- status:", r?.status, "ok:", r?.ok)
                 return r
             } catch (e) {
-                console.error(TAG, "fetch FAILED:", String(e))
+                console.error(TAG, "fetch FAILED:", redact(String(e)))
                 throw e
             }
+        }
+
+        // Lists every method on ctx.videoCore (documented or not) and returns the command-like ones
+        function probePlayerApi(): string[] {
+            const names = new Set<string>()
+            try {
+                let o: any = ctx.videoCore
+                for (let i = 0; o && i < 4; i++) {
+                    for (const k of Object.getOwnPropertyNames(o)) names.add(k)
+                    o = Object.getPrototypeOf(o)
+                }
+            } catch (e) {
+                console.warn(TAG, "Nie udało się wylistować metod:", redact(String(e)))
+            }
+            const all = Array.from(names).sort()
+            console.log(TAG, "Metody ctx.videoCore:", all.join(", "))
+            const commandLike = all.filter((n) => /command|mpv|exec|raw|eval|ipc/i.test(n))
+            console.log(TAG, "Metody podobne do komend:", commandLike.length ? commandLike.join(", ") : "(brak)")
+            return commandLike
+        }
+
+        // EXPERIMENTAL: try to send mpv's `sub-add <url> select <title> <lang>` through a command-like method.
+        // mpv downloads the file from the URL by itself, so no headers are needed (the API key is in the URL).
+        function tryMpvSubAdd(commandLike: string[], url: string, label: string): boolean {
+            for (const name of commandLike) {
+                const fn = (ctx.videoCore as any)[name]
+                if (typeof fn !== "function") continue
+                try {
+                    const res = fn.call(ctx.videoCore, ["sub-add", url, "select", label, "pl"])
+                    console.log(TAG, `MPV komenda przez ${name}() wysłana:`, redact(JSON.stringify(res) ?? "ok"))
+                    return true
+                } catch (e) {
+                    console.warn(TAG, `MPV komenda przez ${name}() nie powiodła się:`, redact(String(e)))
+                }
+            }
+            return false
         }
 
         // ---------- main logic ----------
@@ -87,7 +139,7 @@ function init() {
                 const state: any = ctx.videoCore.getPlaybackState()
 
                 console.log(TAG, `(${trigger}) media:`, JSON.stringify(media)?.slice(0, 300))
-                console.log(TAG, `(${trigger}) playbackInfo:`, JSON.stringify(info)?.slice(0, 600))
+                console.log(TAG, `(${trigger}) playbackInfo:`, redact(JSON.stringify(info)?.slice(0, 600) ?? ""))
 
                 const anilistId = media?.id
                 const episode = readEpisodeNumber(info, state)
@@ -101,8 +153,11 @@ function init() {
                 if (key === lastKey) return
                 lastKey = key
 
+                const isMpvCore = info?.target === "mpvcore"
+                const commandLike = probePlayerApi()
+
                 const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
-                console.log(TAG, "Zapytanie:", url.replace(apiKey, "***"))
+                console.log(TAG, "Zapytanie:", redact(url))
 
                 const res = await doFetch(url)
                 if (!res.ok) {
@@ -126,22 +181,30 @@ function init() {
                         // Download the file ourselves, so no CORS / header problems in the player
                         const subRes = await doFetch(sub.url)
                         if (!subRes.ok) {
-                            console.warn(TAG, "Nie udało się pobrać napisów:", sub.url, subRes.status)
+                            console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
                             continue
                         }
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
 
-                        const titleLine = text.match(/^Title:\s*(.+)$/m)
+                        const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
                         const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
 
-                        if (USE_URL) {
+                        // VideoCore: send the subtitle text (works).
+                        // MpvCore: mpv's sub-add needs a file/URL, so send the URL. The Go struct
+                        // (player.SubtitleTrack) has uri / sourceUrl / src but no "url", and we don't
+                        // know which name the plugin binding reads, so set all of them.
+                        if (USE_URL || isMpvCore) {
                             ctx.videoCore.addExternalSubtitleTrack({
                                 label,
                                 language: "pl",
                                 type: type === "srt" ? "vtt" : type,
+                                format: type === "srt" ? "vtt" : type,
                                 url: sub.url,
-                            })
+                                uri: sub.url,
+                                sourceUrl: sub.url,
+                                src: sub.url,
+                            } as any)
                         } else {
                             ctx.videoCore.addExternalSubtitleTrack({
                                 label,
@@ -150,10 +213,17 @@ function init() {
                                 content: type === "srt" ? srtToVtt(text) : text,
                             })
                         }
+
+                        // Experimental path for MpvCore
+                        if (MPV_COMMANDS && isMpvCore) {
+                            const ok = tryMpvSubAdd(commandLike, sub.url, label)
+                            if (!ok) console.warn(TAG, "Brak działającej metody do komend mpv.")
+                        }
+
                         console.log(TAG, "Dodano ścieżkę:", label, type)
                         added++
                     } catch (e) {
-                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", e)
+                        console.error(TAG, "Błąd przy dodawaniu ścieżki:", redact(String(e)))
                     }
                 }
 
@@ -163,12 +233,11 @@ function init() {
                     lastKey = ""
                 }
             } catch (err) {
-                console.error(TAG, "Wyjątek:", err)
+                console.error(TAG, "Wyjątek:", redact(String(err)))
                 lastKey = ""
             }
         }
 
-        // Fires when the player has loaded the video metadata (track list is ready)
         // Inject only once the player is actually ready, then wait a moment,
         // otherwise mpv can drop tracks that were added during loading.
         ctx.videoCore.addEventListener("video-can-play", () => {
