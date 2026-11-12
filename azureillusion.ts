@@ -10,6 +10,9 @@ function init() {
         const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
         const INJECT_DELAY_MS = 2000
 
+        const FALLBACK_NAME = "AzureIllusion"
+        const ALWAYS_SHOW_DETAILS = false
+
         let lastKey = ""
         let isInjecting = false
 
@@ -24,6 +27,10 @@ function init() {
             }
         }
 
+        function groupFromId(id: string): string {
+            return id.replace(/\s*\[(ASS|SSA|SRT)\].*$/i, "").trim()
+        }
+
         function srtToVtt(srt: string): string {
             const body = srt
                 .replace(/^﻿/, "")
@@ -32,7 +39,7 @@ function init() {
                 .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")
             return "WEBVTT\n\n" + body
         }
-
+        
         function detectType(url: string, content: string): "ass" | "vtt" | "srt" {
             const clean = (url || "").split("?")[0].toLowerCase()
             if (clean.endsWith(".ass") || clean.endsWith(".ssa")) return "ass"
@@ -112,6 +119,14 @@ function init() {
                 }
 
                 let added = 0
+                const nameCount: Record<string, number> = {}
+                const groupCounts: Record<string, number> = {}
+
+                for (const s of subs) {
+                    const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
+                    if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
+                }
+                
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
@@ -120,8 +135,13 @@ function init() {
 
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
-                        const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
-                        const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
+                        const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
+                        const group = fullId ? groupFromId(fullId) : ""
+                        const base = !group
+                            ? FALLBACK_NAME
+                            : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
+                        nameCount[base] = (nameCount[base] || 0) + 1
+                        const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
                         // 1. Wstrzykiwanie przez MPV IPC (jeśli odtwarzacz to mpvcore)
                         let mpvInjected = false
