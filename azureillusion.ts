@@ -171,7 +171,7 @@ function init() {
 
         // ---------- main logic ----------
 
-        async function injectSubtitles(trigger: string) {
+       async function injectSubtitles(trigger: string) {
             try {
                 const apiKey = ($getUserPreference("apiKey") || "").trim()
                 const baseUrl = (($getUserPreference("baseUrl") || DEFAULT_BASE) as string).replace(/\/+$/, "")
@@ -201,7 +201,8 @@ function init() {
                 if (key === lastKey) return
                 lastKey = key
 
-                const isMpvCore = info?.target === "mpvcore" || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore";
+                const targetStr = String(info?.target || "").toLowerCase().trim();
+                const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore";
                 console.log(TAG, "DEBUG MPV Check -> target:", info?.target, "isMpvCore:", isMpvCore, "ctx.mpv:", !!ctx.mpv);
                 const commandLike = probePlayerApi()
 
@@ -239,52 +240,55 @@ function init() {
                         const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
                         const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
 
-                        // VideoCore: send the subtitle text (works).
-                        // MpvCore: mpv's sub-add needs a file/URL, so send the URL. The Go struct
-                        // (player.SubtitleTrack) has uri / sourceUrl / src but no "url", and we don't
-                        // know which name the plugin binding reads, so set all of them.
-                        if (USE_URL || isMpvCore) {
-                            const useAlt = ALT_ADD && typeof (ctx.videoCore as any).addSubtitleTrack === "function"
-                            const adder: any = useAlt
-                                ? (ctx.videoCore as any).addSubtitleTrack.bind(ctx.videoCore)
-                                : ctx.videoCore.addExternalSubtitleTrack.bind(ctx.videoCore)
-                            console.log(TAG, "Metoda dodawania:", useAlt ? "addSubtitleTrack" : "addExternalSubtitleTrack")
-                            adder({
-                                label,
-                                language: "pl",
-                                type: type === "srt" ? "vtt" : type,
-                                format: type === "srt" ? "vtt" : type,
-                                url: sub.url,
-                                uri: sub.url,
-                                sourceUrl: sub.url,
-                                src: sub.url,
-                            } as any)
-                        } else {
-                            ctx.videoCore.addExternalSubtitleTrack({
-                                label,
-                                language: "pl",
-                                type: type === "srt" ? "vtt" : type,
-                                content: type === "srt" ? srtToVtt(text) : text,
-                            })
-                        }
-                            //Z gemini
+                        // 1. Najpierw próbujemy obsłużyć MPV przez IPC (jeśli to mpvcore i mamy dostęp do ctx.mpv)
+                        let mpvInjected = false
                         if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
                             try {
                                 const mpvConn = await ctx.mpv.getConnection()
                                 if (mpvConn && typeof mpvConn.command === "function") {
                                     await mpvConn.command(["sub-add", sub.url, "select", label, "pl"])
                                     console.log(TAG, "Dodano napisy do MPV przez IPC:", label)
+                                    mpvInjected = true
                                 } else if (mpvConn && typeof mpvConn.send === "function") {
                                     await mpvConn.send(["sub-add", sub.url, "select", label, "pl"])
                                     console.log(TAG, "Wysłano napisy do MPV przez send:", label)
+                                    mpvInjected = true
                                 }
                             } catch (mpvErr) {
                                 console.error(TAG, "Błąd komunikacji z MPV IPC:", redact(String(mpvErr)))
                             }
                         }
-                        
-                        // Experimental path for MpvCore
-                        if (MPV_COMMANDS && isMpvCore) {
+
+                        // 2. Jeśli to nie MPV lub IPC zawiodło, lecimy ze starym mechanizmem VideoCore
+                        if (!mpvInjected) {
+                            if (USE_URL || isMpvCore) {
+                                const useAlt = ALT_ADD && typeof (ctx.videoCore as any).addSubtitleTrack === "function"
+                                const adder: any = useAlt
+                                    ? (ctx.videoCore as any).addSubtitleTrack.bind(ctx.videoCore)
+                                    : ctx.videoCore.addExternalSubtitleTrack.bind(ctx.videoCore)
+                                console.log(TAG, "Metoda dodawania:", useAlt ? "addSubtitleTrack" : "addExternalSubtitleTrack")
+                                adder({
+                                    label,
+                                    language: "pl",
+                                    type: type === "srt" ? "vtt" : type,
+                                    format: type === "srt" ? "vtt" : type,
+                                    url: sub.url,
+                                    uri: sub.url,
+                                    sourceUrl: sub.url,
+                                    src: sub.url,
+                                } as any)
+                            } else {
+                                ctx.videoCore.addExternalSubtitleTrack({
+                                    label,
+                                    language: "pl",
+                                    type: type === "srt" ? "vtt" : type,
+                                    content: type === "srt" ? srtToVtt(text) : text,
+                                })
+                            }
+                        }
+
+                        // Experimental path for MpvCore legacy fallback
+                        if (MPV_COMMANDS && isMpvCore && !mpvInjected) {
                             const ok = tryMpvSubAdd(commandLike, sub.url, label)
                             if (!ok) console.warn(TAG, "Brak działającej metody do komend mpv.")
                         }
