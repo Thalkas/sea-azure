@@ -1,7 +1,7 @@
 {
   "id": "AzureIllusion-subs",
   "name": "AzureIllusion",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "language": "typescript",
   "type": "plugin",
   "description": "Subtitles provider for Polish anime fan-made subtitles in Seanime.",
