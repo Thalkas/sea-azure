@@ -9,18 +9,18 @@ function init() {
         const TAG = "[AzureIllusion]"
         const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
 
+        // Wait a moment after the player is ready, otherwise tracks added during loading can be lost
         const INJECT_DELAY_MS = 2000
-        // false = send subtitle text to the player; true = send only the file URL
-        const USE_URL = false
 
-        // EXPERIMENTAL (MpvCore only). When true and the player is MpvCore, the plugin also tries
-        // to send mpv's own `sub-add` command through any command-like method found on
-        // ctx.videoCore. Leave false until the probe log shows such a method exists.
-        const MPV_COMMANDS = false
+        // Menu label when the API gives no name
+        const FALLBACK_NAME = "AzureIllusion"
 
-        // EXPERIMENTAL (MpvCore only): call the undocumented ctx.videoCore.addSubtitleTrack()
-        // instead of addExternalSubtitleTrack(). Unknown signature, so it's a test only.
-        const ALT_ADD = false
+        // The API puts a readable name in each subtitle's "id", e.g.
+        //   "Miroro-sub [ASS] 12/12 WEB (05.11)"  = group [format] translated/total source (date)
+        // false = the menu shows only the group name ("Miroro-sub"); the full id is used just
+        //         when one group has several releases for the episode, so they can be told apart.
+        // true  = always show the full id.
+        const ALWAYS_SHOW_DETAILS = false
 
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
@@ -36,6 +36,11 @@ function init() {
             } catch (_) {
                 return text
             }
+        }
+
+        // "Miroro-sub [ASS] 12/12 WEB (05.11)" -> "Miroro-sub"
+        function groupFromId(id: string): string {
+            return id.replace(/\s*\[(ASS|SSA|SRT)\].*$/i, "").trim()
         }
 
         function srtToVtt(srt: string): string {
@@ -58,8 +63,7 @@ function init() {
             return "srt"
         }
 
-        // The exact shape of playback info differs a bit between playback types,
-        // so we probe several likely places and log everything for debugging.
+        // The shape of playback info differs a bit between playback types, so check several places
         function readEpisodeNumber(info: any, state: any): number | null {
             const candidates = [
                 info?.episode?.progressNumber,
@@ -79,99 +83,32 @@ function init() {
         async function doFetch(url: string): Promise<any> {
             // ctx.fetch is the UI-context fetch; fall back to the global one
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            console.log(TAG, "fetch ->", redact(url))
-            try {
-                const r = await f(url)
-                console.log(TAG, "fetch <- status:", r?.status, "ok:", r?.ok)
-                return r
-            } catch (e) {
-                console.error(TAG, "fetch FAILED:", redact(String(e)))
-                throw e
-            }
+            return await f(url)
         }
 
-        // Lists every method on ctx.videoCore (documented or not) and returns the command-like ones
-        function probePlayerApi(): string[] {
-            const names = new Set<string>()
+        // MpvCore / MPV: let mpv load the subtitle straight from its URL (works, shows in the menu)
+        async function addViaMpv(url: string, label: string): Promise<boolean> {
+            const mpv = (ctx as any).mpv
+            if (!mpv || typeof mpv.getConnection !== "function") return false
             try {
-                let o: any = ctx.videoCore
-                for (let i = 0; o && i < 4; i++) {
-                    for (const k of Object.getOwnPropertyNames(o)) names.add(k)
-                    o = Object.getPrototypeOf(o)
-                }
-            } catch (e) {
-                console.warn(TAG, "Nie udało się wylistować metod:", redact(String(e)))
-            }
-            const all = Array.from(names).sort()
-            console.log(TAG, "Metody ctx.videoCore:", all.join(", "))
-            // Is there anything like ctx.mpvCore? List everything on ctx itself.
-            try {
-                const ctxKeys = new Set<string>()
-                let c: any = ctx
-                for (let i = 0; c && i < 3; i++) {
-                    for (const k of Object.getOwnPropertyNames(c)) ctxKeys.add(k)
-                    c = Object.getPrototypeOf(c)
-                }
-                console.log(TAG, "Klucze ctx:", Array.from(ctxKeys).sort().join(", "))
-            } catch (e) {
-                console.warn(TAG, "Nie udało się wylistować kluczy ctx:", redact(String(e)))
-            }
-            const commandLike = all.filter((n) => /command|mpv|exec|raw|eval|ipc/i.test(n))
-            console.log(TAG, "Metody podobne do komend:", commandLike.length ? commandLike.join(", ") : "(brak)")
-            return commandLike
-        }
-
-                // Lists every method on ctx.videoCore (documented or not) and returns the command-like ones
-        function probePlayerApi(): string[] {
-            const names = new Set<string>()
-            try {
-                let o: any = ctx.mpv
-                for (let i = 0; o && i < 4; i++) {
-                    for (const k of Object.getOwnPropertyNames(o)) names.add(k)
-                    o = Object.getPrototypeOf(o)
-                }
-            } catch (e) {
-                console.warn(TAG, "Nie udało się wylistować metod:", redact(String(e)))
-            }
-            const all = Array.from(names).sort()
-            console.log(TAG, "Metody ctx.mpv:", all.join(", "))
-            // Is there anything like ctx.mpvCore? List everything on ctx itself.
-            try {
-                const ctxKeys = new Set<string>()
-                let c: any = ctx
-                for (let i = 0; c && i < 3; i++) {
-                    for (const k of Object.getOwnPropertyNames(c)) ctxKeys.add(k)
-                    c = Object.getPrototypeOf(c)
-                }
-                console.log(TAG, "Klucze ctx:", Array.from(ctxKeys).sort().join(", "))
-            } catch (e) {
-                console.warn(TAG, "Nie udało się wylistować kluczy ctx:", redact(String(e)))
-            }
-            const commandLike = all.filter((n) => /command|mpv|exec|raw|eval|ipc/i.test(n))
-            console.log(TAG, "Metody podobne do komend:", commandLike.length ? commandLike.join(", ") : "(brak)")
-            return commandLike
-        }
-
-        // EXPERIMENTAL: try to send mpv's `sub-add <url> select <title> <lang>` through a command-like method.
-        // mpv downloads the file from the URL by itself, so no headers are needed (the API key is in the URL).
-        function tryMpvSubAdd(commandLike: string[], url: string, label: string): boolean {
-            for (const name of commandLike) {
-                const fn = (ctx.videoCore as any)[name]
-                if (typeof fn !== "function") continue
-                try {
-                    const res = fn.call(ctx.videoCore, ["sub-add", url, "select", label, "pl"])
-                    console.log(TAG, `MPV komenda przez ${name}() wysłana:`, redact(JSON.stringify(res) ?? "ok"))
+                const conn = await mpv.getConnection()
+                if (conn && typeof conn.command === "function") {
+                    await conn.command(["sub-add", url, "select", label, "pl"])
                     return true
-                } catch (e) {
-                    console.warn(TAG, `MPV komenda przez ${name}() nie powiodła się:`, redact(String(e)))
                 }
+                if (conn && typeof conn.send === "function") {
+                    await conn.send(["sub-add", url, "select", label, "pl"])
+                    return true
+                }
+            } catch (e) {
+                console.error(TAG, "Błąd komunikacji z MPV:", redact(String(e)))
             }
             return false
         }
 
         // ---------- main logic ----------
 
-       async function injectSubtitles(trigger: string) {
+        async function injectSubtitles() {
             try {
                 const apiKey = ($getUserPreference("apiKey") || "").trim()
                 const baseUrl = (($getUserPreference("baseUrl") || DEFAULT_BASE) as string).replace(/\/+$/, "")
@@ -185,10 +122,6 @@ function init() {
                 const info: any = ctx.videoCore.getCurrentPlaybackInfo()
                 const state: any = ctx.videoCore.getPlaybackState()
 
-                console.log(TAG, `Wersja kodu: altadd-v2 | ALT_ADD=${ALT_ADD} USE_URL=${USE_URL} MPV_COMMANDS=${MPV_COMMANDS}`)
-                console.log(TAG, `(${trigger}) media:`, JSON.stringify(media)?.slice(0, 300))
-                console.log(TAG, `(${trigger}) playbackInfo:`, redact(JSON.stringify(info)?.slice(0, 600) ?? ""))
-
                 const anilistId = media?.id
                 const episode = readEpisodeNumber(info, state)
 
@@ -201,15 +134,9 @@ function init() {
                 if (key === lastKey) return
                 lastKey = key
 
-                const targetStr = String(info?.target || "").toLowerCase().trim();
-                const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore";
-                console.log(TAG, "DEBUG MPV Check -> target:", info?.target, "isMpvCore:", isMpvCore, "ctx.mpv:", !!ctx.mpv);
-                const commandLike = probePlayerApi()
+                const isMpvCore = String(info?.target || "").toLowerCase().includes("mpv")
 
-                const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
-                console.log(TAG, "Zapytanie:", redact(url))
-
-                const res = await doFetch(url)
+                const res = await doFetch(`${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`)
                 if (!res.ok) {
                     console.error(TAG, "Błąd HTTP:", res.status)
                     lastKey = "" // allow retry
@@ -219,81 +146,53 @@ function init() {
                 const data = await res.json()
                 const subs: any[] = data?.subtitles ?? []
                 if (!subs.length) {
-                    console.log(TAG, "Brak napisów dla tego odcinka.")
                     ctx.videoCore.showMessage("AzureIllusion: brak napisów PL", 2500)
                     return
                 }
 
+                // How many releases each group has, to know when the group name alone is ambiguous
+                const groupCounts: Record<string, number> = {}
+                for (const s of subs) {
+                    const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
+                    if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
+                }
+
                 let added = 0
+                const nameCount: Record<string, number> = {}
+
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
-                        // Download the file ourselves, so no CORS / header problems in the player
-                        const subRes = await doFetch(sub.url)
-                        if (!subRes.ok) {
-                            console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
-                            continue
-                        }
-                        const text: string = await subRes.text()
-                        const type = detectType(sub.url, text)
+                        // Label = fansub group name taken from the id. If the group has several releases
+                        // (or ALWAYS_SHOW_DETAILS is on), show the full id (progress, source, date).
+                        const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
+                        const group = fullId ? groupFromId(fullId) : ""
+                        const base = !group
+                            ? FALLBACK_NAME
+                            : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
+                        nameCount[base] = (nameCount[base] || 0) + 1
+                        const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
-                        const titleLine = text.match(/^Title:[ \t]*([^\r\n]+)/m)
-                        const label = `[PL] ${sub.title || sub.label || (titleLine ? titleLine[1].trim() : "AzureIllusion")} #${added + 1}`
+                        // 1. MpvCore: add the track through mpv itself
+                        let done = false
+                        if (isMpvCore) done = await addViaMpv(sub.url, label)
 
-                        // 1. Najpierw próbujemy obsłużyć MPV przez IPC (jeśli to mpvcore i mamy dostęp do ctx.mpv)
-                        let mpvInjected = false
-                        if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
-                            try {
-                                const mpvConn = await ctx.mpv.getConnection()
-                                if (mpvConn && typeof mpvConn.command === "function") {
-                                    await mpvConn.command(["sub-add", sub.url, "select", label, "pl"])
-                                    console.log(TAG, "Dodano napisy do MPV przez IPC:", label)
-                                    mpvInjected = true
-                                } else if (mpvConn && typeof mpvConn.send === "function") {
-                                    await mpvConn.send(["sub-add", sub.url, "select", label, "pl"])
-                                    console.log(TAG, "Wysłano napisy do MPV przez send:", label)
-                                    mpvInjected = true
-                                }
-                            } catch (mpvErr) {
-                                console.error(TAG, "Błąd komunikacji z MPV IPC:", redact(String(mpvErr)))
+                        // 2. VideoCore (or if the mpv route isn't available): download and hand over the text
+                        if (!done) {
+                            const subRes = await doFetch(sub.url)
+                            if (!subRes.ok) {
+                                console.warn(TAG, "Nie udało się pobrać napisów:", redact(sub.url), subRes.status)
+                                continue
                             }
+                            const text: string = await subRes.text()
+                            const type = detectType(sub.url, text)
+                            ctx.videoCore.addExternalSubtitleTrack({
+                                label,
+                                language: "pl",
+                                type: type === "srt" ? "vtt" : type,
+                                content: type === "srt" ? srtToVtt(text) : text,
+                            })
                         }
-
-                        // 2. Jeśli to nie MPV lub IPC zawiodło, lecimy ze starym mechanizmem VideoCore
-                        if (!mpvInjected) {
-                            if (USE_URL || isMpvCore) {
-                                const useAlt = ALT_ADD && typeof (ctx.videoCore as any).addSubtitleTrack === "function"
-                                const adder: any = useAlt
-                                    ? (ctx.videoCore as any).addSubtitleTrack.bind(ctx.videoCore)
-                                    : ctx.videoCore.addExternalSubtitleTrack.bind(ctx.videoCore)
-                                console.log(TAG, "Metoda dodawania:", useAlt ? "addSubtitleTrack" : "addExternalSubtitleTrack")
-                                adder({
-                                    label,
-                                    language: "pl",
-                                    type: type === "srt" ? "vtt" : type,
-                                    format: type === "srt" ? "vtt" : type,
-                                    url: sub.url,
-                                    uri: sub.url,
-                                    sourceUrl: sub.url,
-                                    src: sub.url,
-                                } as any)
-                            } else {
-                                ctx.videoCore.addExternalSubtitleTrack({
-                                    label,
-                                    language: "pl",
-                                    type: type === "srt" ? "vtt" : type,
-                                    content: type === "srt" ? srtToVtt(text) : text,
-                                })
-                            }
-                        }
-
-                        // Experimental path for MpvCore legacy fallback
-                        if (MPV_COMMANDS && isMpvCore && !mpvInjected) {
-                            const ok = tryMpvSubAdd(commandLike, sub.url, label)
-                            if (!ok) console.warn(TAG, "Brak działającej metody do komend mpv.")
-                        }
-
-                        console.log(TAG, "Dodano ścieżkę:", label, type)
                         added++
                     } catch (e) {
                         console.error(TAG, "Błąd przy dodawaniu ścieżki:", redact(String(e)))
@@ -311,18 +210,15 @@ function init() {
             }
         }
 
-        // Inject only once the player is actually ready, then wait a moment,
-        // otherwise mpv can drop tracks that were added during loading.
+        // Inject once the player is ready (after a short delay)
         ctx.videoCore.addEventListener("video-can-play", () => {
             const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
-            wait(() => injectSubtitles("video-can-play+delay"), INJECT_DELAY_MS)
+            wait(() => injectSubtitles(), INJECT_DELAY_MS)
         })
 
         // Reset on new playback so the next episode gets its subtitles
         ctx.videoCore.addEventListener("video-loaded", () => {
             lastKey = ""
         })
-
-        console.log(TAG, "Wtyczka załadowana.")
     })
 }
