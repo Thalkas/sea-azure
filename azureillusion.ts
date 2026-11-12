@@ -121,6 +121,37 @@ function init() {
             return commandLike
         }
 
+                // Lists every method on ctx.videoCore (documented or not) and returns the command-like ones
+        function probePlayerApi(): string[] {
+            const names = new Set<string>()
+            try {
+                let o: any = ctx.mpv
+                for (let i = 0; o && i < 4; i++) {
+                    for (const k of Object.getOwnPropertyNames(o)) names.add(k)
+                    o = Object.getPrototypeOf(o)
+                }
+            } catch (e) {
+                console.warn(TAG, "Nie udało się wylistować metod:", redact(String(e)))
+            }
+            const all = Array.from(names).sort()
+            console.log(TAG, "Metody ctx.mpv:", all.join(", "))
+            // Is there anything like ctx.mpvCore? List everything on ctx itself.
+            try {
+                const ctxKeys = new Set<string>()
+                let c: any = ctx
+                for (let i = 0; c && i < 3; i++) {
+                    for (const k of Object.getOwnPropertyNames(c)) ctxKeys.add(k)
+                    c = Object.getPrototypeOf(c)
+                }
+                console.log(TAG, "Klucze ctx:", Array.from(ctxKeys).sort().join(", "))
+            } catch (e) {
+                console.warn(TAG, "Nie udało się wylistować kluczy ctx:", redact(String(e)))
+            }
+            const commandLike = all.filter((n) => /command|mpv|exec|raw|eval|ipc/i.test(n))
+            console.log(TAG, "Metody podobne do komend:", commandLike.length ? commandLike.join(", ") : "(brak)")
+            return commandLike
+        }
+
         // EXPERIMENTAL: try to send mpv's `sub-add <url> select <title> <lang>` through a command-like method.
         // mpv downloads the file from the URL by itself, so no headers are needed (the API key is in the URL).
         function tryMpvSubAdd(commandLike: string[], url: string, label: string): boolean {
