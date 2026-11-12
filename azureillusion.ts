@@ -16,14 +16,12 @@ function init() {
         // Shown in the menu when the API doesn't tell us the fansub group
         const FALLBACK_NAME = "AzureIllusion"
 
-        // Fields of a subtitle object returned by the API that may hold the fansub group name,
-        // checked in this order. Add the real field name here once we see the API response
-        // in the log line "Dane napisów z API".
-        const GROUP_FIELDS = [
-            "group", "groupName", "fansub", "fansubGroup", "team",
-            "author", "translator", "uploader", "release", "source",
-            "provider", "name", "title", "label",
-        ]
+        // The API puts a readable name in each subtitle's "id", e.g.
+        //   "Miroro-sub [ASS] 12/12 WEB (05.11)"  = group [format] translated/total source (date)
+        // false = the menu shows only the group name ("Miroro-sub"); the full id is used just
+        // when one group has several releases for the episode, so they can be told apart.
+        // true  = always show the full id.
+        const ALWAYS_SHOW_DETAILS = false
 
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
@@ -41,13 +39,9 @@ function init() {
             }
         }
 
-        // Returns the fansub group name from the API object, or null if there isn't one
-        function pickGroupName(sub: any): string | null {
-            for (const field of GROUP_FIELDS) {
-                const v = sub?.[field]
-                if (typeof v === "string" && v.trim()) return v.trim()
-            }
-            return null
+        // "Miroro-sub [ASS] 12/12 WEB (05.11)" -> "Miroro-sub"
+        function groupFromId(id: string): string {
+            return id.replace(/\s*\[(ASS|SSA|SRT)\].*$/i, "").trim()
         }
 
         function srtToVtt(srt: string): string {
@@ -153,6 +147,13 @@ function init() {
                 let added = 0
                 const nameCount: Record<string, number> = {}
 
+                // How many releases each group has, to know when the group name alone is ambiguous
+                const groupCounts: Record<string, number> = {}
+                for (const s of subs) {
+                    const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
+                    if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
+                }
+
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
@@ -168,10 +169,15 @@ function init() {
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
 
-                        // Label = fansub group name; "#2", "#3" only when the same name repeats
-                        const name = pickGroupName(sub) || FALLBACK_NAME
-                        nameCount[name] = (nameCount[name] || 0) + 1
-                        const label = nameCount[name] > 1 ? `${name} #${nameCount[name]}` : name
+                        // Label = fansub group name taken from the id. If the group has several releases
+                        // (or ALWAYS_SHOW_DETAILS is on), show the full id (progress, source, date).
+                        const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
+                        const group = fullId ? groupFromId(fullId) : ""
+                        const base = !group
+                            ? FALLBACK_NAME
+                            : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
+                        nameCount[base] = (nameCount[base] || 0) + 1
+                        const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
                         if (USE_URL) {
                             ctx.videoCore.addExternalSubtitleTrack({
