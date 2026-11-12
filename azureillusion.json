@@ -5,7 +5,7 @@
   "language": "typescript",
   "type": "plugin",
   "description": "Subtitles provider for Polish anime fan-made subtitles in Seanime.",
-  "author": "Thalkas, skoruppa, i3lackhawk",
+  "author": "Thalkas, skoruppa",
   "icon": "https://raw.githubusercontent.com/Thalkas/sea-azure/main/azureillusion-logo-v3.png",
   "website": "https://subs.azureillusion.ovh/account?tab=api",
   "readme": "https://subs.azureillusion.ovh/account?tab=api",
