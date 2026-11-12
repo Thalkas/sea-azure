@@ -7,7 +7,7 @@
 function init() {
     $ui.register((ctx) => {
         const TAG = "[AzureIllusion]"
-        const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
+        const DEFAULT_BASE = "https://api.azureillusion.com"
         const INJECT_DELAY_MS = 2000
 
         const FALLBACK_NAME = "AzureIllusion"
@@ -67,9 +67,19 @@ function init() {
             return null
         }
 
-        async function doFetch(url: string): Promise<any> {
+        async function doFetch(endpoint: string): Promise<any> {
             const f = (ctx as any).fetch ?? (globalThis as any).fetch
-            return await f(url)
+            const apiKey = ($getUserPreference("apiKey") || "").trim()
+            const baseUrl = (($getUserPreference("baseUrl") || DEFAULT_BASE) as string).replace(/\/+$/, "")
+            
+            const url = `${baseUrl}${endpoint}`
+            
+            const headers = {
+                "X-API-Key": apiKey,
+                "Accept": "application/json"
+            }
+
+            return await f(url, { headers })
         }
 
         async function injectSubtitles() {
@@ -99,11 +109,11 @@ function init() {
                 const key = `${anilistId}:${episode}`
                 if (key === lastKey) return
                 lastKey = key
-
+                
                 const targetStr = String(info?.target || "").toLowerCase().trim()
                 const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore"
-
-                const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
+                
+                const url = `/api/public/v1/subtitles/search?anilistId=${anilistId}&episode=${episode}`
                 const res = await doFetch(url)
                 
                 if (!res || !res.ok) {
@@ -130,7 +140,8 @@ function init() {
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
-                        const subRes = await doFetch(sub.url)
+                        const f = (ctx as any).fetch ?? (globalThis as any).fetch
+                        const subRes = await f(sub.url)
                         if (!subRes.ok) continue
 
                         const text: string = await subRes.text()
