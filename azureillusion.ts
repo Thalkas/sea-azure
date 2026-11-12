@@ -18,6 +18,10 @@ function init() {
         // ctx.videoCore. Leave false until the probe log shows such a method exists.
         const MPV_COMMANDS = false
 
+        // EXPERIMENTAL (MpvCore only): call the undocumented ctx.videoCore.addSubtitleTrack()
+        // instead of addExternalSubtitleTrack(). Unknown signature, so it's a test only.
+        const ALT_ADD = true
+
         // Remember what we already injected so one episode isn't injected twice
         let lastKey = ""
 
@@ -195,7 +199,12 @@ function init() {
                         // (player.SubtitleTrack) has uri / sourceUrl / src but no "url", and we don't
                         // know which name the plugin binding reads, so set all of them.
                         if (USE_URL || isMpvCore) {
-                            ctx.videoCore.addExternalSubtitleTrack({
+                            const useAlt = ALT_ADD && typeof (ctx.videoCore as any).addSubtitleTrack === "function"
+                            const adder: any = useAlt
+                                ? (ctx.videoCore as any).addSubtitleTrack.bind(ctx.videoCore)
+                                : ctx.videoCore.addExternalSubtitleTrack.bind(ctx.videoCore)
+                            console.log(TAG, "Metoda dodawania:", useAlt ? "addSubtitleTrack" : "addExternalSubtitleTrack")
+                            adder({
                                 label,
                                 language: "pl",
                                 type: type === "srt" ? "vtt" : type,
