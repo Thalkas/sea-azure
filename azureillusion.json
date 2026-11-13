@@ -26,6 +26,12 @@
         "name": "baseUrl",
         "label": "Base URL",
         "default": "https://api.azureillusion.com"
+      },
+      {
+        "type": "text",
+        "name": "subLang",
+        "label": "Prefered Subtitle Language",
+        "default": "PL"
       }
     ]
   },
