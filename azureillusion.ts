@@ -401,26 +401,33 @@ function init() {
                         const mpvSource = "memory://" + text.replace(/^\uFEFF/, "")
 
                         // 1. Wstrzykiwanie przez MPV IPC (jeśli odtwarzacz to mpvcore)
-                        let mpvInjected = false
-                        if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
-                            try {
-                                const mpvConn = await ctx.mpv.getConnection()
-                                console.log(TAG, "diag conn:", typeof mpvConn, mpvConn ? Object.keys(mpvConn).join(",") : "")
-                                if (mpvConn && typeof mpvConn.command === "function") {
-                                    await mpvConn.command(["sub-add", mpvSource, "select", label, "pl"])
-                                    mpvInjected = true
-                                } else if (mpvConn && typeof mpvConn.send === "function") {
-                                    await mpvConn.send(["sub-add", mpvSource, "select", label, "pl"])
-                                    mpvInjected = true
-                                }
-                            } catch (mpvErr) {
-                                console.error(TAG, "Błąd IPC MPV:", redact(String(mpvErr)))
-                            }
-                        }
+                        //let mpvInjected = false
+                        // W RAMACH TESTOW OKAZALO SIE
+                        // ZE PONIZSZY KOD AZ DO 2.
+                        // NIE DZIALA I ZAWSZE ZWRACA
+                        //2026-11-13 08:33:01 |DBG| extension > (console.log): [AzureIllusion] diag conn: undefined "" id=AzureIllusion-subs
+                        //2026-11-13 08:33:01 |DBG| extension > (console.log): [AzureIllusion] mpvInjected = false -> wchodzę w fallback VideoCore. isMpvCore: true id=AzureIllusion-subs
+                        //if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
+                        //    try {
+                        //        const mpvConn = await ctx.mpv.getConnection()
+                        //        console.log(TAG, "diag conn:", typeof mpvConn, mpvConn ? Object.keys(mpvConn).join(",") : "")
+                        //        if (mpvConn && typeof mpvConn.command === "function") {
+                        //            await mpvConn.command(["sub-add", mpvSource, "select", label, "pl"])
+                        //            mpvInjected = true
+                        //        } else if (mpvConn && typeof mpvConn.send === "function") {
+                        //            await mpvConn.send(["sub-add", mpvSource, "select", label, "pl"])
+                        //            mpvInjected = true
+                        //        }
+                        //    } catch (mpvErr) {
+                        //        console.error(TAG, "Błąd IPC MPV:", redact(String(mpvErr)))
+                        //    }
+                        //}
 
                         // 2. Fallback na standardowy VideoCore
-                        if (!mpvInjected) {
+                        //if (!mpvInjected) {
+                            console.log(TAG, "mpvInjected = false -> wchodzę w fallback VideoCore. isMpvCore:", isMpvCore)
                             if (isMpvCore) {
+                                console.log(TAG, "Wywołuję addExternalSubtitleTrack dla mpvcore z polem url:", mpvSource)
                                 ctx.videoCore.addExternalSubtitleTrack({
                                     label,
                                     language: "pl",
@@ -432,6 +439,7 @@ function init() {
                                     src: mpvSource,
                                 } as any)
                             } else {
+                                console.log(TAG, "Wywołuję addExternalSubtitleTrack dla zwykłego playera z polem content")
                                 ctx.videoCore.addExternalSubtitleTrack({
                                     label,
                                     language: "pl",
@@ -439,8 +447,8 @@ function init() {
                                     content: type === "srt" ? srtToVtt(text) : text,
                                 })
                             }
-                        }
-
+                        //}
+                        console.log(TAG, "Dodano ścieżke");
                         added++
                     } catch (e) {
                         console.error(TAG, "Błąd dodawania ścieżki:", redact(String(e)))
