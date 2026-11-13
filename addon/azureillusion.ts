@@ -143,44 +143,25 @@ function init() {
                         nameCount[base] = (nameCount[base] || 0) + 1
                         const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
-                        // 1. Wstrzykiwanie przez MPV IPC (jeśli odtwarzacz to mpvcore)
-                        let mpvInjected = false
-                        if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
-                            try {
-                                const mpvConn = await ctx.mpv.getConnection()
-                                if (mpvConn && typeof mpvConn.command === "function") {
-                                    await mpvConn.command(["sub-add", sub.url, "select", label, "pl"])
-                                    mpvInjected = true
-                                } else if (mpvConn && typeof mpvConn.send === "function") {
-                                    await mpvConn.send(["sub-add", sub.url, "select", label, "pl"])
-                                    mpvInjected = true
-                                }
-                            } catch (mpvErr) {
-                                console.error(TAG, "Błąd IPC MPV:", redact(String(mpvErr)))
-                            }
-                        }
-
-                        // 2. Fallback na standardowy VideoCore
-                        if (!mpvInjected) {
-                            if (isMpvCore) {
-                                ctx.videoCore.addExternalSubtitleTrack({
-                                    label,
-                                    language: "pl",
-                                    type: type === "srt" ? "vtt" : type,
-                                    format: type === "srt" ? "vtt" : type,
-                                    url: sub.url,
-                                    uri: sub.url,
-                                    sourceUrl: sub.url,
-                                    src: sub.url,
-                                } as any)
-                            } else {
-                                ctx.videoCore.addExternalSubtitleTrack({
-                                    label,
-                                    language: "pl",
-                                    type: type === "srt" ? "vtt" : type,
-                                    content: type === "srt" ? srtToVtt(text) : text,
-                                })
-                            }
+                        // Dodawanie Napisow
+                        if (isMpvCore) {
+                            ctx.videoCore.addExternalSubtitleTrack({
+                                label,
+                                language: "pl",
+                                type: type === "srt" ? "vtt" : type,
+                                format: type === "srt" ? "vtt" : type,
+                                url: sub.url,
+                                uri: sub.url,
+                                sourceUrl: sub.url,
+                                src: sub.url,
+                            } as any)
+                        } else {
+                            ctx.videoCore.addExternalSubtitleTrack({
+                                label,
+                                language: "pl",
+                                type: type === "srt" ? "vtt" : type,
+                                content: type === "srt" ? srtToVtt(text) : text,
+                            })
                         }
 
                         added++
