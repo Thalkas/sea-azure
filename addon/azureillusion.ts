@@ -7,7 +7,7 @@
 function init() {
     $ui.register((ctx) => {
         const TAG = "[AzureIllusion]"
-        const DEFAULT_BASE = "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
+        const DEFAULT_BASE = "https://sea-azure.thalkas.workers.dev"
         const INJECT_DELAY_MS = 2000
 
         const FALLBACK_NAME = "AzureIllusion"
