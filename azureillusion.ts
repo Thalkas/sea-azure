@@ -310,6 +310,12 @@ function init() {
 
                 const targetStr = String(info?.target || "").toLowerCase().trim()
                 const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore"
+                console.log(TAG, "diag:", JSON.stringify({
+                    target: targetStr,
+                    isMpvCore,
+                    hasMpv: !!(ctx as any).mpv,
+                    getConnection: typeof (ctx as any).mpv?.getConnection,
+                }))
 
                 // Ask the API (search + optional progress), then build the same list the worker used to return
                 let releases: any[] = []
@@ -390,19 +396,16 @@ function init() {
                             : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
                         nameCount[base] = (nameCount[base] || 0) + 1
                         const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
-                        
-                        // The API wants the key in a header, so mpv gets the text itself (memory://)
-                        //const mpvSource = "memory://" + text.replace(/^\uFEFF/, "")
 
-                        const cleanText = text.replace(/^\uFEFF/, "")
-                        const base64Content = btoa(unescape(encodeURIComponent(cleanText)))
-                        const mpvSource = `data:text/plain;base64,${base64Content}`
-                        
+                        // The API wants the key in a header, so mpv gets the text itself (memory://)
+                        const mpvSource = "memory://" + text.replace(/^\uFEFF/, "")
+
                         // 1. Wstrzykiwanie przez MPV IPC (jeśli odtwarzacz to mpvcore)
                         let mpvInjected = false
                         if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
                             try {
                                 const mpvConn = await ctx.mpv.getConnection()
+                                console.log(TAG, "diag conn:", typeof mpvConn, mpvConn ? Object.keys(mpvConn).join(",") : "")
                                 if (mpvConn && typeof mpvConn.command === "function") {
                                     await mpvConn.command(["sub-add", mpvSource, "select", label, "pl"])
                                     mpvInjected = true
