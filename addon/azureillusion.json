@@ -1,7 +1,7 @@
 {
   "id": "AzureIllusion-subs",
   "name": "AzureIllusion",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "language": "typescript",
   "type": "plugin",
   "description": "Subtitles provider for Polish anime fan-made subtitles in Seanime.",
@@ -25,7 +25,7 @@
         "type": "text",
         "name": "baseUrl",
         "label": "Base URL",
-        "default": "https://azureillusion-nuvio-addon.skoruppa.workers.dev"
+        "default": "https://sea-azure.thalkas.workers.dev"
       }
     ]
   },
