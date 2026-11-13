@@ -413,12 +413,25 @@ function init() {
 
                         // 2. Fallback na standardowy VideoCore
                         if (!mpvInjected) {
-                            ctx.videoCore.addExternalSubtitleTrack({
-                                label,
-                                language: "pl",
-                                type: type === "srt" ? "vtt" : type,
-                                content: type === "srt" ? srtToVtt(text) : text,
-                            })
+                            if (isMpvCore) {
+                                ctx.videoCore.addExternalSubtitleTrack({
+                                    label,
+                                    language: "pl",
+                                    type: type === "srt" ? "vtt" : type,
+                                    format: type === "srt" ? "vtt" : type,
+                                    url: sub.url,
+                                    uri: sub.url,
+                                    sourceUrl: sub.url,
+                                    src: sub.url,
+                                } as any)
+                            } else {
+                                ctx.videoCore.addExternalSubtitleTrack({
+                                    label,
+                                    language: "pl",
+                                    type: type === "srt" ? "vtt" : type,
+                                    content: type === "srt" ? srtToVtt(text) : text,
+                                })
+                            }
                         }
 
                         added++
