@@ -287,6 +287,7 @@ function init() {
 
             try {
                 const apiKey = ($getUserPreference("apiKey") || "").trim()
+                const baseUrl = (($getUserPreference("baseUrl") || API_BASE) as string).replace(/\/+$/, "")
 
                 if (!apiKey) {
                     console.error(TAG, "Brak klucza API w ustawieniach wtyczki.")
@@ -382,7 +383,7 @@ function init() {
                         if (!subRes.ok) continue
 
                         const text: string = await subRes.text()
-                        const type = detectType("file." + String(sub.format).toLowerCase(), text)
+                        const type = detectType(sub.url, text)
                         const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
                         const group = fullId ? groupFromId(fullId) : ""
                         const base = !group
@@ -391,19 +392,16 @@ function init() {
                         nameCount[base] = (nameCount[base] || 0) + 1
                         const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
 
-                        // The API wants the key in a header, so mpv gets the text itself (memory://)
-                        const mpvSource = "memory://" + text.replace(/^\uFEFF/, "")
-
                         // 1. Wstrzykiwanie przez MPV IPC (jeśli odtwarzacz to mpvcore)
                         let mpvInjected = false
                         if (isMpvCore && ctx.mpv && typeof ctx.mpv.getConnection === "function") {
                             try {
                                 const mpvConn = await ctx.mpv.getConnection()
                                 if (mpvConn && typeof mpvConn.command === "function") {
-                                    await mpvConn.command(["sub-add", mpvSource, "select", label, "pl"])
+                                    await mpvConn.command(["sub-add", sub.url, "select", label, "pl"])
                                     mpvInjected = true
                                 } else if (mpvConn && typeof mpvConn.send === "function") {
-                                    await mpvConn.send(["sub-add", mpvSource, "select", label, "pl"])
+                                    await mpvConn.send(["sub-add", sub.url, "select", label, "pl"])
                                     mpvInjected = true
                                 }
                             } catch (mpvErr) {
