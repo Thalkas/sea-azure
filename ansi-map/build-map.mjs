@@ -13,11 +13,23 @@ const FORMAT = { 'serial tv': ['TV', 'TV_SHORT'], ova: ['OVA'], film: ['MOVIE'],
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export const norm = (v) => String(v ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
-async function get(url, init = {}) {
-  await sleep(PAUSE_MS)
-  const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, ...(init.headers ?? {}) } })
-  if (!res.ok) throw new Error(`${res.status} ${url}`)
-  return res
+// One request with pauses and retries: connection resets, 429 and 5xx are retried with growing delays
+async function get(url, init = {}, attempts = 6) {
+  let lastError
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    await sleep(PAUSE_MS * attempt * attempt)
+    try {
+      const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, ...(init.headers ?? {}) } })
+      if (res.ok) return res
+      lastError = new Error(`${res.status} ${url}`)
+      if (res.status !== 429 && res.status < 500) throw lastError // not worth retrying (404, 403, ...)
+    } catch (error) {
+      lastError = error
+      if (/^[34]\d\d /.test(String(error.message)) && !/^429 /.test(String(error.message))) throw error
+    }
+    console.warn(`retry ${attempt}/${attempts - 1}: ${lastError.cause?.code ?? lastError.message}`)
+  }
+  throw lastError
 }
 
 // "<a href=/anime/ID/slug> TITLE · TYPE · YEAR N pozycji napisów </a>" -> { id, slug, type, year }
@@ -40,12 +52,20 @@ export function parseGroups(html) {
 
 async function crawl() {
   const all = new Map()
+  let failed = 0
   const first = await (await get(`${ANSI}/katalog?litera=A`)).text()
   const groups = parseGroups(first)
   console.log(`grupy katalogu: ${groups.length ? groups.join(' ') : 'brak, używam domyślnych'}`)
   for (const letter of groups.length ? groups : DEFAULT_GROUPS) {
     for (let page = 1; page < 200; page++) {
-      const html = await (await get(`${ANSI}/katalog?litera=${encodeURIComponent(letter)}&strona=${page}`)).text()
+      let html
+      try {
+        html = await (await get(`${ANSI}/katalog?litera=${encodeURIComponent(letter)}&strona=${page}`)).text()
+      } catch (error) {
+        console.warn(`katalog ${letter} p${page}: pominięto (${error.cause?.code ?? error.message})`)
+        failed++
+        break
+      }
       const items = parseCatalogue(html)
       const fresh = items.filter((i) => !all.has(i.id))
       fresh.forEach((i) => all.set(i.id, i))
@@ -53,6 +73,7 @@ async function crawl() {
       if (!items.length || !fresh.length || !html.includes('strona=' + (page + 1))) break
     }
   }
+  if (failed) console.warn(`UWAGA: ${failed} stron katalogu pominięto, lista może być niepełna (poprzednie wpisy zostaną zachowane)`)
   return [...all.values()]
 }
 
@@ -120,9 +141,17 @@ async function resolve(entry) {
 const cache = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, 'utf8')) : { entries: null, resolved: {} }
 // REFRESH=1: crawl the catalogue again (new series appear over time) and retry entries that had no match
 if (!cache.entries || process.env.REFRESH) {
-  cache.entries = await crawl()
-  for (const [id, value] of Object.entries(cache.resolved)) if (value === null) delete cache.resolved[id]
-  fs.writeFileSync(CACHE, JSON.stringify(cache))
+  try {
+    const fresh = await crawl()
+    // keep entries from earlier runs so a partial crawl never shrinks the map
+    cache.entries = [...new Map([...(cache.entries ?? []), ...fresh].map((e) => [e.id, e])).values()]
+    for (const [id, value] of Object.entries(cache.resolved)) if (value === null) delete cache.resolved[id]
+    fs.writeFileSync(CACHE, JSON.stringify(cache))
+  } catch (error) {
+    // A failed refresh must not throw away what we already know
+    if (!cache.entries) throw error
+    console.warn(`odświeżenie katalogu nie powiodło się (${error.cause?.code ?? error.message}), używam zapisanej listy (${cache.entries.length})`)
+  }
 }
 
 for (const [n, entry] of cache.entries.entries()) {
@@ -134,12 +163,21 @@ for (const [n, entry] of cache.entries.entries()) {
 }
 fs.writeFileSync(CACHE, JSON.stringify(cache))
 
-const kv = [], unmatched = []
+// One KV key per AniList id. When several ANSI2.0 series map to the same AniList id the match is ambiguous:
+// none of them goes to KV, they are listed in ansi-duplicates.json for a manual decision (like ansi-unmatched.json).
+const byAnilist = new Map(), unmatched = []
 for (const e of cache.entries) {
   const al = cache.resolved[e.id]
-  if (al) kv.push({ key: String(al), value: JSON.stringify({ id: e.id, slug: e.slug }) })
+  if (al) byAnilist.set(String(al), [...(byAnilist.get(String(al)) ?? []), { id: e.id, slug: e.slug, type: e.type, year: e.year }])
   else unmatched.push({ id: e.id, slug: e.slug, type: e.type, year: e.year })
 }
+const kv = [], duplicates = []
+for (const [key, list] of byAnilist) {
+  if (list.length === 1) kv.push({ key, value: JSON.stringify({ id: list[0].id, slug: list[0].slug }) })
+  else duplicates.push({ anilistId: key, series: list })
+}
+for (const d of duplicates) console.log(`duplikat: AniList ${d.anilistId} <- ${d.series.map((x) => x.slug).join(' | ')}`)
+fs.writeFileSync('ansi-duplicates.json', JSON.stringify(duplicates, null, 1))
 fs.writeFileSync('ansi-map-kv.json', JSON.stringify(kv))
 fs.writeFileSync('ansi-unmatched.json', JSON.stringify(unmatched, null, 1))
-console.log(`matched ${kv.length}, unmatched ${unmatched.length}`)
+console.log(`matched ${kv.length}, duplicates ${duplicates.length} (${duplicates.reduce((n, d) => n + d.series.length, 0)} serii), unmatched ${unmatched.length}`)
