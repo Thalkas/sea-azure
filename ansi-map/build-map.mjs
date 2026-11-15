@@ -5,7 +5,7 @@ import fs from 'node:fs'
 
 const ANSI = 'https://ansi2-production.shisha-player.workers.dev'
 const UA = 'Seanime-AzureIllusion-Addon/1.0 (personal use; small traffic)'
-const LETTERS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'] // add '0-9' style letters if the catalogue lists them
+const LETTERS = ['0-9', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'] // add '0-9' style letters if the catalogue lists them
 const PAUSE_MS = 1200 // ANSI2.0 and AniList (limit 90/min)
 const CACHE = 'build-map.cache.json'
 const FORMAT = { 'serial tv': ['TV', 'TV_SHORT'], ova: ['OVA'], film: ['MOVIE'], ona: ['ONA'], special: ['SPECIAL'], 'odcinek specjalny': ['SPECIAL'] }
