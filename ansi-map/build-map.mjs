@@ -177,6 +177,7 @@ for (const [key, list] of byAnilist) {
   else duplicates.push({ anilistId: key, series: list })
 }
 for (const d of duplicates) console.log(`duplikat: AniList ${d.anilistId} <- ${d.series.map((x) => x.slug).join(' | ')}`)
+for (const u of unmatched) console.log(`unmatched: [${u.type || 'brak'}] ${u.slug} (id: ${u.id}, rok: ${u.year ?? 'brak'})`)
 fs.writeFileSync('ansi-duplicates.json', JSON.stringify(duplicates, null, 1))
 fs.writeFileSync('ansi-map-kv.json', JSON.stringify(kv))
 fs.writeFileSync('ansi-unmatched.json', JSON.stringify(unmatched, null, 1))
