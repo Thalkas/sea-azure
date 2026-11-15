@@ -5,7 +5,7 @@ import fs from 'node:fs'
 
 const ANSI = 'https://ansi2-production.shisha-player.workers.dev'
 const UA = 'Seanime-AzureIllusion-Addon/1.0 (personal use; small traffic)'
-const LETTERS = ['0-9', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'] // add '0-9' style letters if the catalogue lists them
+const DEFAULT_GROUPS = ['0-9', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'] // used only if the catalogue navigation can't be read
 const PAUSE_MS = 1200 // ANSI2.0 and AniList (limit 90/min)
 const CACHE = 'build-map.cache.json'
 const FORMAT = { 'serial tv': ['TV', 'TV_SHORT'], ova: ['OVA'], film: ['MOVIE'], ona: ['ONA'], special: ['SPECIAL'], 'odcinek specjalny': ['SPECIAL'] }
@@ -32,11 +32,20 @@ export function parseCatalogue(html) {
   return out
 }
 
+// Every group linked from the catalogue navigation ("?litera=0-9", "?litera=A", ...), so new ones are picked up automatically
+export function parseGroups(html) {
+  const found = [...html.matchAll(/[?&]litera=([^"&#\s]+)/g)].map((m) => decodeURIComponent(m[1].replace(/&amp;/g, '&')))
+  return [...new Set(found)]
+}
+
 async function crawl() {
   const all = new Map()
-  for (const letter of LETTERS) {
+  const first = await (await get(`${ANSI}/katalog?litera=A`)).text()
+  const groups = parseGroups(first)
+  console.log(`grupy katalogu: ${groups.length ? groups.join(' ') : 'brak, używam domyślnych'}`)
+  for (const letter of groups.length ? groups : DEFAULT_GROUPS) {
     for (let page = 1; page < 200; page++) {
-      const html = await (await get(`${ANSI}/katalog?litera=${letter}&strona=${page}`)).text()
+      const html = await (await get(`${ANSI}/katalog?litera=${encodeURIComponent(letter)}&strona=${page}`)).text()
       const items = parseCatalogue(html)
       const fresh = items.filter((i) => !all.has(i.id))
       fresh.forEach((i) => all.set(i.id, i))
@@ -47,23 +56,65 @@ async function crawl() {
   return [...all.values()]
 }
 
-const QUERY = `query($q:String){Page(perPage:10){media(search:$q,type:ANIME){id format seasonYear startDate{year} title{romaji english native} synonyms}}}`
+// Candidate shape used by pick(): { id (AniList id), format, year, titles: [..] }
+const ANILIST_QUERY = `query($q:String){Page(perPage:10){media(search:$q,type:ANIME){id format seasonYear startDate{year} title{romaji english native} synonyms}}}`
+
+async function searchAniList(q) {
+  const res = await get('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: ANILIST_QUERY, variables: { q } }) })
+  return (await res.json()).data.Page.media.map((m) => ({
+    id: m.id,
+    format: m.format,
+    year: m.seasonYear ?? m.startDate?.year ?? null,
+    titles: [m.title?.romaji, m.title?.english, m.title?.native, ...(m.synonyms ?? [])],
+  }))
+}
+
+// Kitsu is public (no key). The AniList id comes from its "mappings".
+const KITSU_FORMAT = { TV: 'TV', ova: 'OVA', movie: 'MOVIE', ONA: 'ONA', special: 'SPECIAL', OVA: 'OVA' }
+async function searchKitsu(q) {
+  const url = `https://kitsu.io/api/edge/anime?filter[text]=${encodeURIComponent(q)}&include=mappings&page[limit]=10`
+  const body = await (await get(url, { headers: { Accept: 'application/vnd.api+json' } })).json()
+  const mappings = new Map((body.included ?? []).filter((i) => i.type === 'mappings').map((i) => [i.id, i.attributes]))
+  return (body.data ?? []).flatMap((anime) => {
+    const ids = (anime.relationships?.mappings?.data ?? []).map((r) => mappings.get(r.id)).filter((m) => m?.externalSite === 'anilist/anime')
+    const anilistId = ids[0]?.externalId
+    if (!anilistId) return []
+    const a = anime.attributes
+    return [{
+      id: Number(anilistId),
+      format: KITSU_FORMAT[a.subtype] ?? null,
+      year: a.startDate ? Number(a.startDate.slice(0, 4)) : null,
+      titles: [a.canonicalTitle, ...Object.values(a.titles ?? {}), ...(a.abbreviatedTitles ?? [])],
+    }]
+  })
+}
 
 // Exactly one candidate whose title equals the slug title, in the same year (and format when known) -> accept
 export function pick(entry, candidates) {
   const want = norm(entry.slug.replace(/-/g, ' '))
   const formats = FORMAT[entry.type]
-  const good = candidates.filter((c) => {
-    const titles = [c.title?.romaji, c.title?.english, c.title?.native, ...(c.synonyms ?? [])].map(norm)
-    const year = c.seasonYear ?? c.startDate?.year
-    return titles.includes(want) && (!entry.year || !year || year === entry.year) && (!formats || !c.format || formats.includes(c.format))
-  })
+  const good = candidates.filter((c) =>
+    c.titles.map(norm).includes(want) &&
+    (!entry.year || !c.year || c.year === entry.year) &&
+    (!formats || !c.format || formats.includes(c.format)))
   return good.length === 1 ? good[0] : null
 }
 
-async function anilist(q) {
-  const res = await get('https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: QUERY, variables: { q } }) })
-  return (await res.json()).data.Page.media
+// RESOLVER=kitsu (default) or anilist. AniList is tried second when Kitsu has no confident match.
+const RESOLVERS = (process.env.RESOLVER ?? 'kitsu').split(',').map((r) => r.trim()).filter(Boolean)
+const SEARCH = { kitsu: searchKitsu, anilist: searchAniList }
+
+async function resolve(entry) {
+  const q = entry.slug.replace(/-/g, ' ')
+  let lastError = null
+  for (const name of RESOLVERS) {
+    try {
+      const hit = pick(entry, await SEARCH[name](q))
+      if (hit) return hit.id
+    } catch (e) { lastError = e }
+  }
+  if (lastError && RESOLVERS.length === 1) throw lastError
+  return null
 }
 
 const cache = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, 'utf8')) : { entries: null, resolved: {} }
@@ -77,8 +128,7 @@ if (!cache.entries || process.env.REFRESH) {
 for (const [n, entry] of cache.entries.entries()) {
   if (cache.resolved[entry.id] !== undefined) continue
   try {
-    const hit = pick(entry, await anilist(entry.slug.replace(/-/g, ' ')))
-    cache.resolved[entry.id] = hit ? hit.id : null
+    cache.resolved[entry.id] = (await resolve(entry)) ?? null
   } catch (e) { console.warn('skip', entry.slug, e.message); continue }
   if (n % 25 === 0) { fs.writeFileSync(CACHE, JSON.stringify(cache)); console.log(`${n}/${cache.entries.length}`) }
 }
