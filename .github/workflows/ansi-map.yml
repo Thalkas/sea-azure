@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Wgrać wynik do Cloudflare KV?'
+        type: boolean
+        default: true
 
 concurrency:
   group: ansi-map
@@ -43,6 +48,7 @@ jobs:
           key: ansi-map-cache-${{ github.run_id }}
 
       - name: Upload to Cloudflare KV
+        if: github.event.inputs.upload != 'false'
         working-directory: ansi-map
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -52,5 +58,7 @@ jobs:
       - name: Unmatched entries (for manual review)
         uses: actions/upload-artifact@v4
         with:
-          name: ansi-unmatched
-          path: ansi-map/ansi-unmatched.json
+          name: ansi-map-reports
+          path: |
+            ansi-map/ansi-unmatched.json
+            ansi-map/ansi-duplicates.json
