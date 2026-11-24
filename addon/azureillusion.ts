@@ -16,12 +16,32 @@ function init() {
         let lastKey = ""
         let isInjecting = false
 
-        // Maskowanie klucza API w logach
+        // Zewnętrzny MPV (odtwarzacz z ustawień Seanime, nie wbudowany mpvcore)
+        let lastExternalKey = ""
+        let isInjectingExternal = false
+        let warnedNoMediaId = false
+
+        function pref(name: string): string {
+            try {
+                return String($getUserPreference(name) || "").trim()
+            } catch (_) {
+                return ""
+            }
+        }
+
+        // Segment ścieżki w workerze: "klucz_azure", "fsb_..." albo "klucz_azure,fsb_..."
+        function keySegment(): string {
+            return [pref("apiKey"), pref("fansubyKey")].filter(Boolean).join(",")
+        }
+
+        // Maskowanie kluczy API w logach
         function redact(text: string): string {
             try {
-                const key = ($getUserPreference("apiKey") || "").trim()
-                if (!key) return text
-                return text.split(key).join("[REDACTED]")
+                let out = text
+                for (const key of [pref("apiKey"), pref("fansubyKey")]) {
+                    if (key) out = out.split(key).join("[REDACTED]")
+                }
+                return out
             } catch (_) {
                 return text
             }
@@ -39,7 +59,7 @@ function init() {
                 .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")
             return "WEBVTT\n\n" + body
         }
-        
+
         function detectType(url: string, content: string): "ass" | "vtt" | "srt" {
             const clean = (url || "").split("?")[0].toLowerCase()
             if (clean.endsWith(".ass") || clean.endsWith(".ssa")) return "ass"
@@ -72,19 +92,51 @@ function init() {
             return await f(url)
         }
 
+        // Pobiera listę napisów z workera (AzureIllusion + fansuby + ANSI2.0)
+        async function fetchSubList(anilistId: number | string, episode: number): Promise<any[] | null> {
+            const seg = keySegment()
+            const baseUrl = (($getUserPreference("baseUrl") || DEFAULT_BASE) as string).replace(/\/+$/, "")
+
+            if (!seg) {
+                console.error(TAG, "Brak klucza API (AzureIllusion lub fansuby) w ustawieniach wtyczki.")
+                return null
+            }
+
+            const url = `${baseUrl}/${encodeURIComponent(seg)}/subtitles/anime/anilist:${anilistId}:${episode}.json`
+            const res = await doFetch(url)
+            if (!res || !res.ok) return null
+
+            const data = await res.json()
+            return data?.subtitles ?? []
+        }
+
+        function makeLabeler(subs: any[]) {
+            const nameCount: Record<string, number> = {}
+            const groupCounts: Record<string, number> = {}
+
+            for (const s of subs) {
+                const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
+                if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
+            }
+
+            return (sub: any): string => {
+                const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
+                const group = fullId ? groupFromId(fullId) : ""
+                const base = !group
+                    ? FALLBACK_NAME
+                    : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
+                nameCount[base] = (nameCount[base] || 0) + 1
+                return nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
+            }
+        }
+
+        // ---------------- Wbudowany odtwarzacz (VideoCore / mpvcore) ----------------
+
         async function injectSubtitles() {
             if (isInjecting) return
             isInjecting = true
 
             try {
-                const apiKey = ($getUserPreference("apiKey") || "").trim()
-                const baseUrl = (($getUserPreference("baseUrl") || DEFAULT_BASE) as string).replace(/\/+$/, "")
-
-                if (!apiKey) {
-                    console.error(TAG, "Brak klucza API w ustawieniach wtyczki.")
-                    return
-                }
-
                 const media: any = ctx.videoCore?.getCurrentMedia()
                 const info: any = ctx.videoCore?.getCurrentPlaybackInfo()
                 const state: any = ctx.videoCore?.getPlaybackState()
@@ -103,30 +155,19 @@ function init() {
                 const targetStr = String(info?.target || "").toLowerCase().trim()
                 const isMpvCore = targetStr.includes("mpv") || info?.player === "mpv" || (ctx as any).currentVideoPlayer === "mpvcore"
 
-                const url = `${baseUrl}/${apiKey}/subtitles/anime/anilist:${anilistId}:${episode}.json`
-                const res = await doFetch(url)
-                
-                if (!res || !res.ok) {
+                const subs = await fetchSubList(anilistId, episode)
+                if (subs === null) {
                     lastKey = ""
                     return
                 }
-
-                const data = await res.json()
-                const subs: any[] = data?.subtitles ?? []
                 if (!subs.length) {
                     ctx.videoCore.showMessage("AzureIllusion: brak napisów PL", 2500)
                     return
                 }
 
                 let added = 0
-                const nameCount: Record<string, number> = {}
-                const groupCounts: Record<string, number> = {}
+                const labelFor = makeLabeler(subs)
 
-                for (const s of subs) {
-                    const g = typeof s?.id === "string" ? groupFromId(s.id) : ""
-                    if (g) groupCounts[g] = (groupCounts[g] || 0) + 1
-                }
-                
                 for (const sub of subs) {
                     if (!sub?.url) continue
                     try {
@@ -135,13 +176,7 @@ function init() {
 
                         const text: string = await subRes.text()
                         const type = detectType(sub.url, text)
-                        const fullId = typeof sub.id === "string" ? sub.id.trim() : ""
-                        const group = fullId ? groupFromId(fullId) : ""
-                        const base = !group
-                            ? FALLBACK_NAME
-                            : (ALWAYS_SHOW_DETAILS || groupCounts[group] > 1) ? fullId : group
-                        nameCount[base] = (nameCount[base] || 0) + 1
-                        const label = nameCount[base] > 1 ? `${base} #${nameCount[base]}` : base
+                        const label = labelFor(sub)
 
                         // Dodawanie Napisow
                         if (isMpvCore) {
@@ -191,6 +226,96 @@ function init() {
         ctx.videoCore.addEventListener("video-loaded", () => {
             lastKey = ""
         })
+
+        // ---------------- Zewnętrzny MPV (aplikacja MPV uruchamiana przez Seanime) ----------------
+        // Wymaga uprawnienia "playback" w manifeście. Napisy dodawane są komendą mpv "sub-add" przez IPC,
+        // więc MPV samo pobiera plik z workera (rozszerzenie .ass/.srt jest w adresie).
+
+        async function injectExternalMpv(anilistId: number | string, episode: number) {
+            if (isInjectingExternal) return
+            isInjectingExternal = true
+            const key = `${anilistId}:${episode}`
+
+            try {
+                const subs = await fetchSubList(anilistId, episode)
+                if (subs === null) {
+                    lastExternalKey = ""
+                    return
+                }
+                if (!subs.length) {
+                    console.log(TAG, `MPV: brak napisów PL dla ${key}`)
+                    return
+                }
+
+                const conn: any = (ctx as any).mpv?.getConnection?.()
+                if (!conn || conn.isClosed?.()) {
+                    console.warn(TAG, "MPV: brak połączenia IPC z MPV, ponowię przy kolejnym zdarzeniu.")
+                    lastExternalKey = ""
+                    return
+                }
+
+                const labelFor = makeLabeler(subs)
+                let added = 0
+
+                for (const sub of subs) {
+                    if (!sub?.url) continue
+                    try {
+                        // pierwsza ścieżka jest wybierana, kolejne tylko dodawane
+                        conn.call("sub-add", sub.url, added === 0 ? "select" : "auto", labelFor(sub), "pl")
+                        added++
+                    } catch (e) {
+                        console.error(TAG, "MPV: błąd sub-add:", redact(String(e)))
+                    }
+                }
+
+                console.log(TAG, `MPV: dodano napisy PL (${added}) dla ${key}`)
+                if (added === 0) lastExternalKey = ""
+            } catch (err) {
+                console.error(TAG, "MPV: wyjątek:", redact(String(err)))
+                lastExternalKey = ""
+            } finally {
+                isInjectingExternal = false
+            }
+        }
+
+        try {
+            const playback: any = (ctx as any).playback
+            const mpv: any = (ctx as any).mpv
+
+            if (playback?.registerEventListener) {
+                playback.registerEventListener((event: any) => {
+                    const state = event?.state
+                    if (!state) return
+
+                    const mediaId = state.mediaId ?? state.media?.id
+                    const episode = Number(state.episodeNumber)
+
+                    if (!mediaId || !episode || isNaN(episode)) {
+                        if (!warnedNoMediaId && event?.status) {
+                            warnedNoMediaId = true
+                            console.warn(TAG, "MPV: brak mediaId/episodeNumber w stanie odtwarzania. Pola state:", Object.keys(state).join(","))
+                        }
+                        return
+                    }
+
+                    const key = `${mediaId}:${episode}`
+                    if (key === lastExternalKey) return
+                    lastExternalKey = key
+
+                    const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
+                    wait(() => injectExternalMpv(mediaId, episode), INJECT_DELAY_MS)
+                })
+            }
+
+            // po zamknięciu MPV pozwól dodać napisy ponownie przy następnym uruchomieniu
+            if (mpv?.onEvent) {
+                mpv.onEvent((_event: any, closed: boolean) => {
+                    if (closed) lastExternalKey = ""
+                })
+            }
+        } catch (e) {
+            console.warn(TAG, "Obsługa zewnętrznego MPV niedostępna:", redact(String(e)))
+        }
 
         console.log(TAG, "Wtyczka załadowana pomyślnie.")
     })
