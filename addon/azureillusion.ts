@@ -230,7 +230,8 @@ function init() {
         // Seanime nie daje pluginom połączenia IPC z tym MPV, więc plugin NIE szuka tu napisów.
         // Zapisuje tylko "co teraz leci" (AniList ID + odcinek) do pliku w katalogu tymczasowym,
         // a resztą zajmuje się skrypt fansuby-subs.lua działający w MPV.
-        // Wymaga w manifeście: scope "system" oraz allowWritePaths dla "$TEMP/seanime-now-playing.json".
+        // Wymaga w manifeście: scope "system" oraz writePaths obejmujące folder z ustawienia "nowPlayingDir"
+        // (albo "$TEMP/seanime-now-playing.json" i readPaths "$TEMP", gdy folder nie jest ustawiony).
 
         const NOW_PLAYING_FILE = "seanime-now-playing.json"
 
@@ -239,7 +240,9 @@ function init() {
                 const os: any = (globalThis as any).$os
                 const filepath: any = (globalThis as any).$filepath
                 const toBytes: any = (globalThis as any).$toBytes
-                const path = filepath.join(os.tempDir(), NOW_PLAYING_FILE)
+                // Folder z ustawień pluginu (np. D:/Mpv); bez niego katalog tymczasowy (wymaga odczytu $TEMP w manifeście).
+                const dir = pref("nowPlayingDir")
+                const path = filepath.join(dir || os.tempDir(), NOW_PLAYING_FILE)
                 const payload = JSON.stringify({
                     anilistId: Number(mediaId),
                     episode,
