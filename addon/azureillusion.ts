@@ -18,7 +18,6 @@ function init() {
 
         // Zewnętrzny MPV (odtwarzacz z ustawień Seanime, nie wbudowany mpvcore)
         let lastExternalKey = ""
-        let isInjectingExternal = false
         let warnedNoMediaId = false
 
         function pref(name: string): string {
@@ -228,53 +227,29 @@ function init() {
         })
 
         // ---------------- Zewnętrzny MPV (aplikacja MPV uruchamiana przez Seanime) ----------------
-        // Wymaga uprawnienia "playback" w manifeście. Napisy dodawane są komendą mpv "sub-add" przez IPC,
-        // więc MPV samo pobiera plik z workera (rozszerzenie .ass/.srt jest w adresie).
+        // Seanime nie daje pluginom połączenia IPC z tym MPV, więc plugin NIE szuka tu napisów.
+        // Zapisuje tylko "co teraz leci" (AniList ID + odcinek) do pliku w katalogu tymczasowym,
+        // a resztą zajmuje się skrypt fansuby-subs.lua działający w MPV.
+        // Wymaga w manifeście: scope "system" oraz allowWritePaths dla "$TEMP/seanime-now-playing.json".
 
-        async function injectExternalMpv(anilistId: number | string, episode: number) {
-            if (isInjectingExternal) return
-            isInjectingExternal = true
-            const key = `${anilistId}:${episode}`
+        const NOW_PLAYING_FILE = "seanime-now-playing.json"
 
+        function writeNowPlaying(mediaId: number | string, episode: number, filename: string) {
             try {
-                const subs = await fetchSubList(anilistId, episode)
-                if (subs === null) {
-                    lastExternalKey = ""
-                    return
-                }
-                if (!subs.length) {
-                    console.log(TAG, `MPV: brak napisów PL dla ${key}`)
-                    return
-                }
-
-                const conn: any = (ctx as any).mpv?.getConnection?.()
-                if (!conn || conn.isClosed?.()) {
-                    console.warn(TAG, "MPV: brak połączenia IPC z MPV, ponowię przy kolejnym zdarzeniu.")
-                    lastExternalKey = ""
-                    return
-                }
-
-                const labelFor = makeLabeler(subs)
-                let added = 0
-
-                for (const sub of subs) {
-                    if (!sub?.url) continue
-                    try {
-                        // pierwsza ścieżka jest wybierana, kolejne tylko dodawane
-                        conn.call("sub-add", sub.url, added === 0 ? "select" : "auto", labelFor(sub), "pl")
-                        added++
-                    } catch (e) {
-                        console.error(TAG, "MPV: błąd sub-add:", redact(String(e)))
-                    }
-                }
-
-                console.log(TAG, `MPV: dodano napisy PL (${added}) dla ${key}`)
-                if (added === 0) lastExternalKey = ""
-            } catch (err) {
-                console.error(TAG, "MPV: wyjątek:", redact(String(err)))
-                lastExternalKey = ""
-            } finally {
-                isInjectingExternal = false
+                const os: any = (globalThis as any).$os
+                const filepath: any = (globalThis as any).$filepath
+                const toBytes: any = (globalThis as any).$toBytes
+                const path = filepath.join(os.tempDir(), NOW_PLAYING_FILE)
+                const payload = JSON.stringify({
+                    anilistId: Number(mediaId),
+                    episode,
+                    filename,
+                    ts: Math.floor(Date.now() / 1000),
+                })
+                os.writeFile(path, typeof toBytes === "function" ? toBytes(payload) : payload, 0o644)
+                console.log(TAG, `MPV: zapisano ${path} (anilist:${mediaId}:${episode})`)
+            } catch (e) {
+                console.error(TAG, "MPV: nie udało się zapisać pliku now-playing:", redact(String(e)))
             }
         }
 
@@ -282,6 +257,7 @@ function init() {
             const playback: any = (ctx as any).playback
             const mpv: any = (ctx as any).mpv
 
+            // Zdarzenia ctx.playback dotyczą tylko zewnętrznych odtwarzaczy (MPV/VLC/...), nie wbudowanego.
             if (playback?.registerEventListener) {
                 playback.registerEventListener((event: any) => {
                     const state = event?.state
@@ -302,12 +278,11 @@ function init() {
                     if (key === lastExternalKey) return
                     lastExternalKey = key
 
-                    const wait = (ctx as any).setTimeout ?? (globalThis as any).setTimeout
-                    wait(() => injectExternalMpv(mediaId, episode), INJECT_DELAY_MS)
+                    writeNowPlaying(mediaId, episode, String(state.filename ?? event?.startedEvent?.filename ?? ""))
                 })
             }
 
-            // po zamknięciu MPV pozwól dodać napisy ponownie przy następnym uruchomieniu
+            // po zamknięciu MPV pozwól zapisać plik ponownie przy następnym uruchomieniu tego samego odcinka
             if (mpv?.onEvent) {
                 mpv.onEvent((_event: any, closed: boolean) => {
                     if (closed) lastExternalKey = ""
