@@ -52,7 +52,12 @@
       ],
       "allow": {
         "readPaths": [],
-        "writePaths": ["D:/Mpv/*"],
+        "writePaths": [
+          "D:/MPV/*",
+          "D:\\MPV\\*",
+          "D:/MPV/seanime-now-playing.json",
+          "D:\\MPV\\seanime-now-playing.json"
+        ]
         "networkAccess": {
           "allowedDomains": ["*"],
           "reasoning": "Fetch subtitles from AzureIllusion API."
