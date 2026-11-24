@@ -227,33 +227,63 @@ function init() {
         })
 
         // ---------------- Zewnętrzny MPV (aplikacja MPV uruchamiana przez Seanime) ----------------
-        // Seanime nie daje pluginom połączenia IPC z tym MPV, więc plugin NIE szuka tu napisów.
-        // Zapisuje tylko "co teraz leci" (AniList ID + odcinek) do pliku w katalogu tymczasowym,
-        // a resztą zajmuje się skrypt fansuby-subs.lua działający w MPV.
-        // Wymaga w manifeście: scope "system" oraz writePaths obejmujące folder z ustawienia "nowPlayingDir"
-        // (albo "$TEMP/seanime-now-playing.json" i readPaths "$TEMP", gdy folder nie jest ustawiony).
+        // Seanime nie daje pluginom połączenia IPC z tym MPV. Zamiast tego plugin sam pyta worker o napisy
+        // i zapisuje wynik (AniList ID, odcinek, linki do napisów) do pliku seanime-now-playing.json w folderze MPV.
+        // Dalej robi to skrypt seanime-subs.lua działający w MPV: czyta ten plik, pobiera napisy i je dodaje.
+        // Wymaga w manifeście: scope "system" oraz writePaths obejmujące folder MPV (np. "D:/MPV/*").
+        // Włączane w ustawieniach pluginu: "useExternalMpv" (przełącznik) i "mpvDir" (folder, np. D:/MPV).
 
         const NOW_PLAYING_FILE = "seanime-now-playing.json"
 
-        function writeNowPlaying(mediaId: number | string, episode: number, filename: string) {
+        function isOn(value: string): boolean {
+            const v = value.toLowerCase()
+            return v === "true" || v === "1" || v === "yes" || v === "tak" || v === "on"
+        }
+
+        // Zwraca folder MPV, gdy włączono zewnętrzny MPV i podano folder; w innym razie null.
+        function externalMpvDir(): string | null {
+            if (!isOn(pref("useExternalMpv"))) return null
+            const dir = pref("mpvDir").replace(/[\\/]+$/, "")
+            return dir ? dir : null
+        }
+
+        function writeNowPlaying(dir: string, data: any) {
             try {
                 const os: any = (globalThis as any).$os
                 const filepath: any = (globalThis as any).$filepath
                 const toBytes: any = (globalThis as any).$toBytes
-                // Folder z ustawień pluginu (np. D:/Mpv); bez niego katalog tymczasowy (wymaga odczytu $TEMP w manifeście).
-                const dir = pref("nowPlayingDir")
-                const path = filepath.join(dir || os.tempDir(), NOW_PLAYING_FILE)
-                const payload = JSON.stringify({
-                    anilistId: Number(mediaId),
-                    episode,
-                    filename,
-                    ts: Math.floor(Date.now() / 1000),
-                })
+                const path = filepath.join(dir, NOW_PLAYING_FILE)
+                const payload = JSON.stringify(data)
                 os.writeFile(path, typeof toBytes === "function" ? toBytes(payload) : payload, 0o644)
-                console.log(TAG, `MPV: zapisano ${path} (anilist:${mediaId}:${episode})`)
+                console.log(TAG, `MPV: zapisano ${path} (anilist:${data.anilistId}:${data.episode}, napisów: ${data.subtitles.length})`)
             } catch (e) {
                 console.error(TAG, "MPV: nie udało się zapisać pliku now-playing:", redact(String(e)))
             }
+        }
+
+        // Pobiera listę napisów z workera (raz na odcinek) i zapisuje plik dla skryptu MPV.
+        async function publishToMpv(dir: string, mediaId: number | string, episode: number, filename: string) {
+            let subtitles: any[] = []
+            try {
+                const subs = await fetchSubList(mediaId, episode)
+                if (subs === null) {
+                    console.warn(TAG, `MPV: worker nie zwrócił listy dla ${mediaId}:${episode} (brak klucza lub błąd)`)
+                } else {
+                    const labelFor = makeLabeler(subs)
+                    subtitles = subs
+                        .filter((s: any) => s && s.url)
+                        .map((s: any) => ({ title: labelFor(s), url: String(s.url) }))
+                }
+            } catch (e) {
+                console.error(TAG, "MPV: błąd pobierania listy napisów:", redact(String(e)))
+            }
+            writeNowPlaying(dir, {
+                anilistId: Number(mediaId),
+                episode,
+                filename,
+                ts: Math.floor(Date.now() / 1000),
+                subtitles,
+            })
         }
 
         try {
@@ -263,6 +293,9 @@ function init() {
             // Zdarzenia ctx.playback dotyczą tylko zewnętrznych odtwarzaczy (MPV/VLC/...), nie wbudowanego.
             if (playback?.registerEventListener) {
                 playback.registerEventListener((event: any) => {
+                    const dir = externalMpvDir()
+                    if (!dir) return
+
                     const state = event?.state
                     if (!state) return
 
@@ -281,7 +314,7 @@ function init() {
                     if (key === lastExternalKey) return
                     lastExternalKey = key
 
-                    writeNowPlaying(mediaId, episode, String(state.filename ?? event?.startedEvent?.filename ?? ""))
+                    publishToMpv(dir, mediaId, episode, String(state.filename ?? event?.startedEvent?.filename ?? ""))
                 })
             }
 
