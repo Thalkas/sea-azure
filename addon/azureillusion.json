@@ -1,7 +1,7 @@
 {
   "id": "AzureIllusion-subs",
   "name": "AzureIllusion",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "language": "typescript",
   "type": "plugin",
   "description": "[TEST]Subtitles provider for Polish anime fan-made subtitles in Seanime.",
@@ -57,7 +57,7 @@
           "D:\\MPV\\*",
           "D:/MPV/seanime-now-playing.json",
           "D:\\MPV\\seanime-now-playing.json"
-        ]
+        ],
         "networkAccess": {
           "allowedDomains": ["*"],
           "reasoning": "Fetch subtitles from AzureIllusion API."
