@@ -27,11 +27,15 @@
         "label": "fansuby API Key, fsb_… (opcjonalnie)",
         "default": ""
       },
-      {
-        "type": "text",
-        "name": "nowPlayingDir",
-        "label": "Folder na plik now-playing dla MPV (np. D:/Mpv)",
-        "default": ""
+      { "type": "switch",
+        "name": "useExternalMpv",
+        "label": "Używam zewnętrznego MPV", 
+        "default": false 
+      },
+      { "type": "text", 
+        "name": "mpvDir", 
+        "label": "Folder MPV, np. D:/MPV", 
+        "default": "" 
       },
       {
         "type": "text",
